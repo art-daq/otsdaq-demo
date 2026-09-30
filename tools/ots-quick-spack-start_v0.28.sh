@@ -302,6 +302,7 @@ export SPACK_DISABLE_LOCAL_CONFIG=true
 export SPACK_USER_CACHE_PATH=$Base/.spack-cache
 source $spackdir/share/spack/setup-env.sh
 
+spack load --first gcc${gccver:+@${gccver}}
 spack env activate ${env_to_activate}
 
 #handle using ots-develop local install area

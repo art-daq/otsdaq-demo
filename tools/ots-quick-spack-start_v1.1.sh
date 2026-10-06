@@ -358,6 +358,20 @@ alias  mb='date; start_time=\$(date +%s); spack find | grep gcc; spack mpd build
 alias  ml='date; start_time=\$(date +%s); spack find | grep gcc; spack mpd build -j\$BUILD_J 2>&1 | sed s/__spack_path_placeholder__//g | sed s/\\\[padded-to-255-chars\\\]//g | sed s/\\\/tdaq-v......../\\\/tdaq-v_\ \ \ /g | tee m.txt; end_time=\$(date +%s); spack mpd install; date; delta_time=$((end_time - start_time)); fractional_minutes=\$(echo "scale=1; \$delta_time / 60" | bc); echo "Full time: \$delta_time seconds or \$fractional_minutes minutes"; less m.txt'
 alias  mz='date; start_time=\$(date +%s); spack mpd z; spack mpd build --clean -j\$BUILD_J 2>&1 | sed s/__spack_path_placeholder__//g; end_time=\$(date +%s); spack mpd install; date; delta_time=\$((end_time - start_time)); fractional_minutes=\$(echo "scale=1; \$delta_time / 60" | bc); echo "Full time: \$delta_time seconds or \$fractional_minutes minutes"'
 
+function mlint() {
+  pushd $Base
+  if ! [ -d styleguide ]; then
+    git clone https://github.com/art-daq/styleguide.git
+  fi
+  if [ `grep -c COMPILE_COMMANDS srcs/CMakeLists.txt` -eq 0 ]; then
+    sed -i '/^project/a\set(CMAKE_EXPORT_COMPILE_COMMANDS ON)' srcs/CMakeLists.txt
+    echo "Building to generate compile commands..."
+    spack mpd build -G Ninja -j$CETPKG_J &>/dev/null
+  fi
+  echo "Executing dune-cpp-style-check build $*"
+  styleguide/cpplint/dune-cpp-style-check.sh build $*
+  popd
+}
 
 if [ \${OTSDAQ_SETUP:-0} -eq 0 ]; then
   # Now save a copy of the environment after setup

@@ -2,6 +2,10 @@
 #define OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_FRAGMENTTYPE_HH_
 #include "artdaq-core/Data/Fragment.hh"
 
+#include <map>
+#include <string>
+#include <vector>
+
 namespace ots
 {
 std::vector<std::string> const names{"MISSED", "UDP", "STIB", "DataGen", "UNKNOWN"};

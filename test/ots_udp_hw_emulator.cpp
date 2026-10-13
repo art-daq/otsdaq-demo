@@ -28,6 +28,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <string>
 
 /// take only file name
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)

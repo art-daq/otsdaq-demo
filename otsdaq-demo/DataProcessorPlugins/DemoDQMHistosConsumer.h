@@ -5,6 +5,7 @@
 #include "otsdaq/DataManager/DQMHistosConsumerBase.h"
 
 #include <string>
+#include <map>
 
 namespace ots
 {

@@ -30,6 +30,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <string>
 
 //#define ZED_IP   "192.168.133.6"    // the ZED IP users will be connecting to
 //#define ZED_IP             "192.168.133.5"    // the ZED IP users will be connecting to

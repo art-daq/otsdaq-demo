@@ -1,5 +1,5 @@
-#ifndef artdaq_ots_Overlays_FragmentType_hh
-#define artdaq_ots_Overlays_FragmentType_hh
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_FRAGMENTTYPE_HH_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_FRAGMENTTYPE_HH_
 #include "artdaq-core/Data/Fragment.hh"
 
 namespace ots
@@ -44,4 +44,4 @@ std::string fragmentTypeToString(FragmentType val);
  */
 std::map<artdaq::Fragment::type_t, std::string> makeFragmentTypeMap();
 }  // namespace ots
-#endif /* artdaq_ots_core_Overlays_FragmentType_hh */
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_FRAGMENTTYPE_HH_

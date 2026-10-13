@@ -1,5 +1,5 @@
-#ifndef _ots_DemoDQMHistos_h_
-#define _ots_DemoDQMHistos_h_
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_DEMOROOTUTILITIES_DEMODQMHISTOS_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_DEMOROOTUTILITIES_DEMODQMHISTOS_H_
 
 #include <map>
 #include <queue>
@@ -25,4 +25,4 @@ class DemoDQMHistos
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_DEMOROOTUTILITIES_DEMODQMHISTOS_H_

@@ -192,7 +192,7 @@ int main(void)
 
 	// sendSockfd = makeSocket(string("localhost").c_str(),myport,p);
 
-	struct addrinfo /*hints,*/ /* *servinfo,*/* p;
+	struct addrinfo /**hints, */ /** *servinfo, */* p;
 
 	int communicationSocket = makeSocket(0, COMMUNICATION_PORT, p);
 	// int                streamingSocket     = makeSocket(0, STREAMING_PORT, p);

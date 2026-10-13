@@ -1,4 +1,4 @@
-#include <dirent.h> /*DIR and dirent*/
+#include <dirent.h> //DIR and dirent
 #include <iostream>
 #include <set>
 #include "otsdaq-demo/FEInterfaces/FEOtsEthernetProgramInterface.h"

@@ -37,8 +37,8 @@
 #define COMMUNICATION_PORT "2035"  // the port on ZedBoard for communicating with XDAQ
 #define STREAMING_PORT "2036"      // the port on ZedBoard for streaming to XDAQ
 #define DESTINATION_IP "192.168.133.5"  // the IP for the destination of the datastream
-constexpr int DESTINATION_PORT = 2039;           // the port for the destination of the datastream
-constexpr int MAXBUFLEN = 1492;
+constexpr int DESTINATION_PORT = 2039;  // the port for the destination of the datastream
+constexpr int MAXBUFLEN        = 1492;
 
 //========================================================================================================================
 /// get sockaddr, IPv4 or IPv6:

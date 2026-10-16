@@ -1,9 +1,10 @@
-#ifndef _ots_DemoDQMHistosConsumer_h_
-#define _ots_DemoDQMHistosConsumer_h_
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_DATAPROCESSORPLUGINS_DEMODQMHISTOSCONSUMER_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_DATAPROCESSORPLUGINS_DEMODQMHISTOSCONSUMER_H_
 
 #include "otsdaq/Configurable/Configurable.h"
 #include "otsdaq/DataManager/DQMHistosConsumerBase.h"
 
+#include <map>
 #include <string>
 
 namespace ots
@@ -43,4 +44,4 @@ class DemoDQMHistosConsumer : public DQMHistosConsumerBase, public Configurable
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_DATAPROCESSORPLUGINS_DEMODQMHISTOSCONSUMER_H_

@@ -1,5 +1,5 @@
-#ifndef artdaq_ots_Overlays_DataGenFragment_hh
-#define artdaq_ots_Overlays_DataGenFragment_hh
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENT_HH_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENT_HH_
 
 #include "artdaq-core/Data/Fragment.hh"
 #include "cetlib_except/exception.h"
@@ -109,4 +109,4 @@ class ots::DataGenFragment
 	artdaq::Fragment const& artdaq_Fragment_;
 };
 
-#endif /* artdaq_ots_core_Overlays_DataGenFragment_hh */
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENT_HH_

@@ -1,5 +1,5 @@
-#ifndef _ots_myNewInterface_h_
-#define _ots_myNewInterface_h_
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_MYNEWINTERFACE_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_MYNEWINTERFACE_H_
 
 #include "otsdaq-components/FEInterfaces/FEOtsUDPTemplateInterface.h"
 
@@ -38,4 +38,4 @@ class myNewInterface : public FEOtsUDPTemplateInterface
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_MYNEWINTERFACE_H_

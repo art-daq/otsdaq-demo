@@ -34,6 +34,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <iostream>
+#include <string>
 
 #define HWPORT "4950"  // the port of the front end (hardware) target
 #define MAXBUFLEN 1492

@@ -30,14 +30,15 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <string>
 
 //#define ZED_IP   "192.168.133.6"    // the ZED IP users will be connecting to
 //#define ZED_IP             "192.168.133.5"    // the ZED IP users will be connecting to
 #define COMMUNICATION_PORT "2035"  // the port on ZedBoard for communicating with XDAQ
 #define STREAMING_PORT "2036"      // the port on ZedBoard for streaming to XDAQ
 #define DESTINATION_IP "192.168.133.5"  // the IP for the destination of the datastream
-#define DESTINATION_PORT 2039           // the port for the destination of the datastream
-#define MAXBUFLEN 1492
+constexpr int DESTINATION_PORT = 2039;  // the port for the destination of the datastream
+constexpr int MAXBUFLEN        = 1492;
 
 //========================================================================================================================
 /// get sockaddr, IPv4 or IPv6:
@@ -192,7 +193,7 @@ int main(void)
 
 	// sendSockfd = makeSocket(string("localhost").c_str(),myport,p);
 
-	struct addrinfo /*hints,*/ /* *servinfo,*/* p;
+	struct addrinfo /**hints, */ /** *servinfo, */* p;
 
 	int communicationSocket = makeSocket(0, COMMUNICATION_PORT, p);
 	// int                streamingSocket     = makeSocket(0, STREAMING_PORT, p);

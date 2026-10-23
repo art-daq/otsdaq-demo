@@ -128,7 +128,10 @@ need /usr/include/tbb/tbb.h                    tbb-devel        libtbb-dev
 need /usr/include/openssl/ssl.h                openssl-devel    libssl-dev
 need /usr/include/curl/curl.h                  libcurl-devel    libcurl4-openssl-dev
 need /usr/include/python3*/Python.h            python3-devel    python3-dev
-for t in git curl tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
+for t in git curl wget tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
+# used at run time by the `ots` script, not by this installer
+command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(gettext-base); }
+command -v killall  >/dev/null 2>&1 || { missing_rpm+=(psmisc);  missing_deb+=(psmisc); }
 gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 [ "${gccmajor:-0}" -ge 12 ] || { missing_rpm+=(gcc-toolset-13-gcc-c++); missing_deb+=(g++-13); }
 # these two have a from-source fallback below, so only inform

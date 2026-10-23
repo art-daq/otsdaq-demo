@@ -16,7 +16,7 @@ equivalents exist on Debian/Ubuntu (`apt`) — use `g++-13` or newer there.
 ```bash
 # toolchain: gcc >= 12 is required (cetlib uses constexpr std::string); AL9 ships gcc 11,
 # so install the gcc-toolset-13 RPM. The script enables it automatically if present.
-sudo dnf install gcc-toolset-13-gcc-c++ make git curl tar
+sudo dnf install gcc-toolset-13-gcc-c++ make git curl wget tar gettext psmisc
 
 # -devel libraries that otsdaq and the cet suite link against
 sudo dnf install boost-devel sqlite-devel tbb-devel openssl-devel libcurl-devel python3-devel

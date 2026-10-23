@@ -341,6 +341,7 @@ echo -e "setup_ots.sh:\${LINENO} |  \t      setup_ots.sh creates some compiling 
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
 echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build"
 echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz_uc                          ### for ultra clean build (also rebuilds dependencies)"
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
 echo -e "setup_ots.sh:\${LINENO} |  \t  "
 echo -e "setup_ots.sh:\${LINENO} |  \t  "

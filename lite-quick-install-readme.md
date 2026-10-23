@@ -1,8 +1,8 @@
 # otsdaq lite — quick install on an empty Linux box
 
 `ots-quick-lite-start.sh` installs and builds a lightweight otsdaq (no Spack, no CVMFS,
-no xdaq, no artdaq) from source, using plain `cmake` + `gcc`. Only three repos are
-used: `otsdaq`, `otsdaq-utilities`, `otsdaq-demo`. Target: minutes, not hours, on a
+no xdaq, no artdaq) from source, using plain `cmake` + `gcc`. Four repos are
+used: `otsdaq`, `otsdaq-components`, `otsdaq-utilities`, `otsdaq-demo`. Target: minutes, not hours, on a
 small machine such as an SoC running a stock Linux distribution.
 
 Everything the script can build itself, it does (into `local/install`). The short list
@@ -39,10 +39,13 @@ Internet access to `github.com` is required during install.
 
 ```bash
 mkdir ots && cd ots
-wget https://raw.githubusercontent.com/art-daq/otsdaq-demo/develop/tools/ots-quick-lite-start.sh
+wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/feature/ots-lite/tools/ots-quick-lite-start.sh
 chmod +x ots-quick-lite-start.sh
-./ots-quick-lite-start.sh
+./ots-quick-lite-start.sh --branch feature/ots-lite
 ```
+
+(Until the lite work is merged into `develop`, both the URL and `--branch` must name
+`feature/ots-lite`; afterwards drop `--branch` and use the `develop` URL.)
 
 That is it. The script:
 
@@ -50,13 +53,13 @@ That is it. The script:
 2. clones and builds the cet suite, TRACE, and artdaq-database into `./local/install`
    (~90 s on 24 cores). fhicl-cpp gets the small `raw_value` patch that artdaq-database
    needs (the same one the `fhicl-cpp+db` Spack variant applies).
-3. clones the three otsdaq repos into `./srcs` (read-only HTTPS, no credentials)
-4. builds otsdaq, otsdaq-utilities, otsdaq-demo into `./local/install`
+3. clones the four otsdaq repos into `./srcs` (read-only HTTPS, no credentials)
+4. builds otsdaq, otsdaq-components, otsdaq-utilities, otsdaq-demo into `./local/install`
 5. writes `setup_ots.sh` and prints per-package build timings
 
 A full log of every run is kept in `qls-log/`.
 
-Options: `--debug` (Debug build), `--branch <name>` (git branch for the three repos,
+Options: `--debug` (Debug build), `--branch <name>` (git branch for the four repos,
 default `develop`), `--repo-base <url-or-dir>` (where to clone from; a local directory
 works for development), `--no-build` (stop after sources are checked out).
 
@@ -74,7 +77,7 @@ This exports `OTS_LITE=1`, enables the toolchain, puts `local/install` on `PATH`
 
 | alias   | what it does |
 |---------|--------------|
-| `mb`    | incremental build of the three otsdaq repos (`cmake --build` + install) |
+| `mb`    | incremental build of the four otsdaq repos (`cmake --build` + install) |
 | `mz`    | clean build: wipe `build/`, re-run cmake, build, install |
 | `mz_uc` | ultra-clean: wipe `build/` **and** `local/install`, rebuild deps and otsdaq from scratch (re-evaluates all dependencies — the cmake equivalent of `spack concretize`) |
 
@@ -85,9 +88,9 @@ Then `ots --wiz` to configure, `ots` to start, `kx` to kill (see `ots --help`).
 `OTS_LITE=1` is the single switch. It is exported by the install script and by
 `setup_ots.sh`, and the CMakeLists files check `if(DEFINED ENV{OTS_LITE})` to:
 
-- skip `find_package` for artdaq, artdaq-core, XDAQ, otsdaq-components
+- skip `find_package` for artdaq, artdaq-core, XDAQ
 - not build the `artdaq-ots` tree, the `ARTDAQ*` modules/plugins, and the otsdaq-demo
-  pieces that need art/artdaq or otsdaq-components
+  pieces that need art/artdaq or ROOT
 - replace the artdaq link targets in the core libraries with `otsdaq::XdaqLite`, a thin
   header-compatible stand-in for the xdaq/artdaq classes the Supervisors use
 - keep the real artdaq-database `Database` configuration plugin (full read/write of the
@@ -104,7 +107,7 @@ ots/
   setup_ots.sh              source this in each new terminal
   cmake/                    user-space cmake (only if the system one was too old)
   deps/                     cet suite sources
-  srcs/                     otsdaq, otsdaq-utilities, otsdaq-demo
+  srcs/                     otsdaq, otsdaq-components, otsdaq-utilities, otsdaq-demo
   build/                    cmake build trees
   local/install/            everything installed (deps + otsdaq)
   qls-log/                  install logs

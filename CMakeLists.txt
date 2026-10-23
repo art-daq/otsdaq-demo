@@ -73,10 +73,9 @@ endif()
 #cet_report_compiler_flags()
 
 find_package(otsdaq 2.06.06 REQUIRED)
+find_package(otsdaq-components 2.06.06 REQUIRED)
 if(DEFINED ENV{OTS_LITE})
-	message("!!! OTS_LITE build: skipping otsdaq-components and artdaq !!!")
-else()
-	find_package(otsdaq-components 2.06.06 REQUIRED)
+	message("!!! OTS_LITE build: skipping artdaq and ROOT !!!")
 endif()
 
 # Code

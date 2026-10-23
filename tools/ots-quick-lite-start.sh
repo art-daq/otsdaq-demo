@@ -33,7 +33,7 @@ examples: `basename $0`
           `basename $0` --branch feature/ots-lite --repo-base /path/to/dev-srcs
 --debug       perform a debug build
 --branch      Git branch to check out in srcs/ for the 3 lite repos (default: develop)
---repo-base   Where to clone the 3 repos from (default: https://github.com/art-daq;
+--repo-base   Where to clone the 4 repos from (default: https://github.com/art-daq;
               may be a local directory containing otsdaq, otsdaq-utilities, otsdaq-demo)
 --no-pull     Do not git pull repos that are already checked out
 --no-build    Only set up toolchain, deps, and sources; skip the otsdaq build
@@ -257,7 +257,7 @@ cd $Base
 test -L srcs && rm srcs
 mkdir -p srcs
 cd srcs
-for pkg in otsdaq otsdaq-utilities otsdaq-demo;do
+for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo;do
     checkout_package $pkg
 done
 cd $Base
@@ -321,8 +321,8 @@ echo -e "setup_ots.sh:\${LINENO} |  \t  Now your output data path is OTSDAQ_DATA
 echo
 
 alias  kx='ots -k'
-alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
-alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 # ultra clean: wipe build/ and local/install, rebuild deps and otsdaq from scratch (re-evaluates all dependencies, like spack concretize)
 alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/build-timings.txt; (cd $Base && ./$(basename "${BASH_SOURCE[0]}") --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
@@ -405,7 +405,7 @@ chmod 755 reset_ots_tutorial.sh
 if [ $opt_no_build -eq 0 ]; then
     cd $Base
     export OTS_SOURCE=$Base/srcs
-    for pkg in otsdaq otsdaq-utilities otsdaq-demo; do
+    for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do
         build_package $pkg $Base/srcs/$pkg $cet_cmake_flags
         installStatus=$?
         if [ $installStatus -ne 0 ]; then

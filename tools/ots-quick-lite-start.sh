@@ -409,9 +409,11 @@ cat $Base/build-timings.txt
 echo
 
 if [ $installStatus -eq 0 ]; then
-    echo "otsdaq lite has been installed correctly. Use 'source setup_ots.sh' to setup your otsdaq software, then follow the instructions or visit the project page for more info: https://github.com/art-daq/otsdaq/wiki"
+    echo "otsdaq lite has been installed correctly. Use 'source setup_ots.sh' to setup your otsdaq software."
     echo
     echo "In the future, when you open a new terminal, just use 'source setup_ots.sh' to setup your ots installation."
+    echo
+    echo "For tutorials and additional resources, go to https://otsdaq.fnal.gov"
     echo
 else
     echo "BUILD ERROR!!! SOMETHING IS VERY WRONG!!!"

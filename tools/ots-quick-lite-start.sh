@@ -189,7 +189,7 @@ for pkg in cetlib-except hep-concurrency cetlib fhicl-cpp messagefacility; do
     test -d $pkg || git clone -q https://github.com/art-framework-suite/$pkg.git
 done
 test -d trace || git clone -q https://github.com/art-daq/trace.git
-test -d artdaq_database || git clone -q -b feature/ots-lite https://github.com/art-daq/artdaq_database.git
+test -d artdaq_database || git clone -q -b feature/ots-lite https://github.com/art-daq/artdaq-database.git artdaq_database
 # artdaq-database reads fhicl::extended_value::raw_value, which upstream fhicl-cpp does not have.
 # Apply the same patch the fhicl-cpp+db Spack variant uses (art-daq/artdaq-spack); idempotent on rerun.
 fhicl_patch_url=https://raw.githubusercontent.com/art-daq/artdaq-spack/cb888fa56a2584d170e7fff04c57edc0c48eaf0b/packages/fhicl-cpp/fhicl-cpp-v4_19_02.patch

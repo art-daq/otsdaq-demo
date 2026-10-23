@@ -324,7 +324,7 @@ alias  kx='ots -k'
 alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 # ultra clean: wipe build/ and local/install, rebuild deps and otsdaq from scratch (re-evaluates all dependencies, like spack concretize)
-alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/build-timings.txt; (cd $Base && ./$(basename $0) --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/build-timings.txt; (cd $Base && ./$(basename "${BASH_SOURCE[0]}") --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
 export OTSDAQ_SETUP=1
 

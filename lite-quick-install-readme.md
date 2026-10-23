@@ -24,7 +24,8 @@ sudo dnf install boost-devel sqlite-devel tbb-devel openssl-devel libcurl-devel 
 
 Not needed from the OS — the script downloads or builds them into `local/install`
 without root: `cmake` (user-space binary from Kitware), cetmodules, cetlib-except,
-hep-concurrency, cetlib, fhicl-cpp, messagefacility, Catch2, and — only if the OS
+hep-concurrency, cetlib, fhicl-cpp, messagefacility, Catch2, TRACE, artdaq-database
+(built with `WITH_MONGODB=OFF`, so no MongoDB driver or server), and — only if the OS
 copy is missing — xerces-c, libzmq, cppzmq. (`sudo dnf install xerces-c-devel
 cppzmq-devel` is still the faster route when you have root.)
 
@@ -46,7 +47,9 @@ chmod +x ots-quick-lite-start.sh
 That is it. The script:
 
 1. enables `gcc-toolset-13` if found, downloads `cmake` into `./cmake` if the system one is too old (< 3.24)
-2. clones and builds the cet suite into `./local/install` (~40 s on 24 cores)
+2. clones and builds the cet suite, TRACE, and artdaq-database into `./local/install`
+   (~90 s on 24 cores). fhicl-cpp gets the small `raw_value` patch that artdaq-database
+   needs (the same one the `fhicl-cpp+db` Spack variant applies).
 3. clones the three otsdaq repos into `./srcs` (read-only HTTPS, no credentials)
 4. builds otsdaq, otsdaq-utilities, otsdaq-demo into `./local/install`
 5. writes `setup_ots.sh` and prints per-package build timings
@@ -82,10 +85,13 @@ Then `ots --wiz` to configure, `ots` to start, `kx` to kill (see `ots --help`).
 `OTS_LITE=1` is the single switch. It is exported by the install script and by
 `setup_ots.sh`, and the CMakeLists files check `if(DEFINED ENV{OTS_LITE})` to:
 
-- skip `find_package` for artdaq, artdaq-core, artdaq-database, XDAQ, otsdaq-components
-- not build the `artdaq-ots` tree, the `ARTDAQ*` modules/plugins, the artdaq-database
-  config plugin, and the otsdaq-demo pieces that need art/artdaq or otsdaq-components
-- drop artdaq link targets from the core libraries
+- skip `find_package` for artdaq, artdaq-core, XDAQ, otsdaq-components
+- not build the `artdaq-ots` tree, the `ARTDAQ*` modules/plugins, and the otsdaq-demo
+  pieces that need art/artdaq or otsdaq-components
+- replace the artdaq link targets in the core libraries with `otsdaq::XdaqLite`, a thin
+  header-compatible stand-in for the xdaq/artdaq classes the Supervisors use
+- keep the real artdaq-database `Database` configuration plugin (full read/write of the
+  `filesystemdb` configuration database); only the MongoDB provider is left out
 
 The same CMakeLists build the full system when `OTS_LITE` is unset. There is no separate
 lite branch of the source tree — one tree, one env var.

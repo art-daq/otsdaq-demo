@@ -177,6 +177,7 @@ function build_package()
 
 ########################################
 ## cet suite from source (~40s on 24 cores): cetmodules, cetlib-except, hep-concurrency, cetlib, fhicl-cpp, messagefacility
+## then TRACE and artdaq-database (~50s), all into local/install
 ## Catch2 is only needed because messagefacility unconditionally builds its MF_catch_main test helper (upstream FIXME).
 ########################################
 cd $Base
@@ -188,6 +189,14 @@ for pkg in cetlib-except hep-concurrency cetlib fhicl-cpp messagefacility; do
     test -d $pkg || git clone -q https://github.com/art-framework-suite/$pkg.git
 done
 test -d trace || git clone -q https://github.com/art-daq/trace.git
+test -d artdaq_database || git clone -q -b feature/ots-lite https://github.com/art-daq/artdaq_database.git
+# artdaq-database reads fhicl::extended_value::raw_value, which upstream fhicl-cpp does not have.
+# Apply the same patch the fhicl-cpp+db Spack variant uses (art-daq/artdaq-spack); idempotent on rerun.
+fhicl_patch_url=https://raw.githubusercontent.com/art-daq/artdaq-spack/cb888fa56a2584d170e7fff04c57edc0c48eaf0b/packages/fhicl-cpp/fhicl-cpp-v4_19_02.patch
+if ! grep -q raw_value fhicl-cpp/fhiclcpp/extended_value.h; then
+    curl -fsSL $fhicl_patch_url -o fhicl-cpp-db.patch || { echo "ERROR: cannot download fhicl-cpp patch $fhicl_patch_url"; exit 1; }
+    git -C fhicl-cpp apply $Base/deps/fhicl-cpp-db.patch || { echo "ERROR: fhicl-cpp patch did not apply (fhicl-cpp develop moved?)"; exit 1; }
+fi
 cd $Base
 : > $Base/build-timings.txt
 build_package Catch2 $Base/deps/Catch2 -DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_TESTING=OFF || exit 1
@@ -224,6 +233,8 @@ for pkg in cetmodules cetlib-except hep-concurrency cetlib fhicl-cpp messagefaci
 done
 # TRACE (otsdaq::Macros links TRACE::MF); no kernel module in lite
 build_package trace $Base/deps/trace $cet_cmake_flags -DWANT_KMOD=OFF || exit 1
+# artdaq-database: the real "Database" configuration plugin (filesystemdb read/write); no MongoDB driver needed
+build_package artdaq_database $Base/deps/artdaq_database $cet_cmake_flags -DWITH_MONGODB=OFF || exit 1
 
 ########################################
 ## Checkout the 3 lite repos (read-only; --repo-base may be a local directory while iterating)

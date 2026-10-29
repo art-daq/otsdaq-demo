@@ -310,6 +310,8 @@ export ARTDAQ_PARTITION=1
 
 k5user=\`klist|grep "Default principal"|cut -d: -f2|sed 's/@.*//;s/ //'\`
 export TRACE_FILE=/tmp/trace_buffer_\$USER.\$k5user
+# TRACE shell functions (tlvls, tshow, tonM, ...); the Spack trace package sourced this automatically, lite must do it here
+[ -f \$SCRIPT_DIR/local/install/bin/trace_functions.sh ] && source \$SCRIPT_DIR/local/install/bin/trace_functions.sh
 
 export OTS_MAIN_PORT=2015
 

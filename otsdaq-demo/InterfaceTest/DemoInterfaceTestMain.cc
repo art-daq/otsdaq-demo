@@ -1,16 +1,11 @@
-#include <fstream>
-#include <iostream>
-
 #include "otsdaq-components/FEInterfaces/FEOtsUDPTemplateInterface.h"
 #include "otsdaq/ConfigurationInterface/ConfigurationInterface.h"
 #include "otsdaq/ConfigurationInterface/ConfigurationManager.h"
 #include "otsdaq/TableCore/TableGroupKey.h"
-/*
 
-#include "otsdaq-components/FEInterfaces/FEWOtsUDPFSSRInterface.h"
-#include "otsdaq-components/FEInterfaces/FEWOtsUDPHCALInterface.h"
-#include "otsdaq/ConfigurationDataFormats/FEWOtsUDPHardwareTable.h"
-*/
+#include <fstream>
+#include <iostream>
+
 using namespace ots;
 
 int main(int argc, char** argv)

@@ -362,39 +362,29 @@ EOF
 ########################################
 cd $Base
 
-# Fetch data and databases from develop
-git clone https://github.com/art-daq/otsdaq_demo -b develop
-if ! [ -d databases ]; then
-    cp -a otsdaq_demo/NoGitDatabases databases
+# Seed Data and databases on first install only; rebuilds (mz_uc) leave them alone.
+if ! [ -d Data ] || ! [ -d databases ]; then
+    git clone --depth 1 https://github.com/art-daq/otsdaq_demo -b develop otsdaq_demo_seed
+    [ -d databases ] || cp -a otsdaq_demo_seed/NoGitDatabases databases
+    [ -d Data ]      || cp -a otsdaq_demo_seed/NoGitData Data
+    rm -rf otsdaq_demo_seed
+
+    wget -q https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh -O get_tutorial_data.sh --no-check-certificate
+    chmod 755 get_tutorial_data.sh
+    export USER_DATA="$Base/Data"
+    export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
+    ./get_tutorial_data.sh
+    rm -rf $Base/qls-log/script_log; mv $Base/script_log $Base/qls-log/ 2>/dev/null
+    rm -f get_tutorial_data.sh
+
+    wget -q https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/reset_ots_tutorial.sh -O reset_ots_tutorial.sh --no-check-certificate
+    chmod 755 reset_ots_tutorial.sh
+else
+    echo -e "UpdateOTS.sh [${LINENO}]  \t Data/ and databases/ already present, keeping them"
 fi
-if ! [ -d Data ];then
-    cp -a otsdaq_demo/NoGitData Data
-fi
-rm -rf otsdaq_demo
 
 export USER_DATA="$Base/Data"
 export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
-
-
-#download get_tutorial_data script
-wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh -O get_tutorial_data.sh --no-check-certificate
-
-#change permissions so the script is executable
-chmod 755 get_tutorial_data.sh
-
-#execute script (it checks for setup_ots.sh in $PWD, so it must run from $Base); then tuck its
-#script_log/ under qls-log/ so the top level keeps only user-facing entries (setup_ots.sh, srcs/, ...)
-./get_tutorial_data.sh
-rm -rf $Base/qls-log/script_log; mv $Base/script_log $Base/qls-log/ 2>/dev/null
-
-
-#copy tutorial launching scripts
-echo
-echo -e "UpdateOTS.sh [${LINENO}]  \t updating tutorial launch scripts..."
-rm get_tutorial_data.sh &>/dev/null 2>&1 #hide output
-rm reset_ots_tutorial.sh &>/dev/null 2>&1 #hide output
-wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/reset_ots_tutorial.sh -O reset_ots_tutorial.sh --no-check-certificate
-chmod 755 reset_ots_tutorial.sh
 
 
 ########################################

@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -52,6 +53,112 @@ void* get_in_addr(struct sockaddr* sa)
 	}
 
 	return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
+unsigned int bytesPerSample(uint16_t bitWidth)
+{
+	if(bitWidth <= 8)   return 1;
+	if(bitWidth <= 16)  return 2;
+	return 4;
+}
+
+uint32_t generateWaveformSample(int channel, time_t count, uint32_t maxVal)
+{
+	double t = (double)count;
+	double v = 0;
+	int    ch = channel % 8;
+	switch(ch)
+	{
+	case 0:  // sine, period 100
+		v = 0.5 + 0.5 * sin(2.0 * M_PI * t / 100.0);
+		break;
+	case 1:  // sine, period 50
+		v = 0.5 + 0.5 * sin(2.0 * M_PI * t / 50.0);
+		break;
+	case 2:  // triangle, period 100
+	{
+		double phase = fmod(t, 100.0) / 100.0;
+		v = (phase < 0.5) ? (phase * 2.0) : (2.0 - phase * 2.0);
+		break;
+	}
+	case 3:  // triangle, period 60
+	{
+		double phase = fmod(t, 60.0) / 60.0;
+		v = (phase < 0.5) ? (phase * 2.0) : (2.0 - phase * 2.0);
+		break;
+	}
+	case 4:  // step / square wave, period 80
+		v = (fmod(t, 80.0) < 40.0) ? 1.0 : 0.0;
+		break;
+	case 5:  // step, period 40
+		v = (fmod(t, 40.0) < 20.0) ? 1.0 : 0.0;
+		break;
+	case 6:  // sine + varying offset, period 100
+		v = 0.5 + 0.4 * sin(2.0 * M_PI * t / 100.0) + 0.1 * sin(2.0 * M_PI * t / 7.0);
+		break;
+	case 7:  // sawtooth, period 100
+		v = fmod(t, 100.0) / 100.0;
+		break;
+	}
+	if(v < 0.0) v = 0.0;
+	if(v > 1.0) v = 1.0;
+	return (uint32_t)(v * maxVal);
+}
+
+unsigned int fillBurstPayload(char*    buff,
+                              int      txOffset,
+                              uint8_t  data_mode,
+                              uint16_t sample_bit_width,
+                              uint16_t samples_per_packet,
+                              uint16_t num_channels,
+                              time_t   count)
+{
+	if(data_mode == 0)
+	{
+		memcpy((void*)&buff[txOffset], (void*)&count, 8);
+		return txOffset + 8;
+	}
+
+	uint32_t     maxVal = (1u << sample_bit_width) - 1;
+	unsigned int bps    = bytesPerSample(sample_bit_width);
+	uint16_t     nch    = (data_mode == 1) ? 1 : num_channels;
+	uint16_t     nsamp  = samples_per_packet;
+
+	if(nsamp == 0)
+	{
+		unsigned int maxPayload = MAXBUFLEN - txOffset;
+		nsamp = maxPayload / (nch * bps);
+		if(nsamp == 0) nsamp = 1;
+	}
+
+	unsigned int offset = txOffset;
+	for(uint16_t s = 0; s < nsamp; ++s)
+	{
+		for(uint16_t ch = 0; ch < nch; ++ch)
+		{
+			uint32_t val;
+			if(data_mode == 1)
+				val = (uint32_t)((maxVal / 2) + (maxVal / 2) * sin(2.0 * M_PI * (count + s) / 100.0));
+			else
+				val = generateWaveformSample(ch, count + s, maxVal);
+
+			if(offset + bps > MAXBUFLEN) return offset;
+
+			if(bps == 1)
+				buff[offset] = (char)(val & 0xFF);
+			else if(bps == 2)
+			{
+				buff[offset]     = (char)(val & 0xFF);
+				buff[offset + 1] = (char)((val >> 8) & 0xFF);
+			}
+			else
+			{
+				memcpy((void*)&buff[offset], (void*)&val, 4);
+			}
+			offset += bps;
+		}
+	}
+	return offset;
 }
 
 int makeSocket(const char* ip, int port, struct addrinfo*& p)
@@ -177,15 +284,23 @@ int main(int argc, char** argv)
 	// ignored'\n";
 	addressSpaceSS << "\t 0x0000000100000008 \t W \t 'Stream destination port'\n";
 	addressSpaceSS << "\t 0x0000000100000009 \t W/R \t 'Burst data enable'\n";
+	addressSpaceSS << "\t 0x0000000000001004 \t W/R \t 'Data mode (0=counter,1=sine,2=multi-ch waveforms)'\n";
+	addressSpaceSS << "\t 0x0000000000001005 \t W/R \t 'Sample bit width (8,12,16,32)'\n";
+	addressSpaceSS << "\t 0x0000000000001006 \t W/R \t 'Samples per packet (0=max fit)'\n";
+	addressSpaceSS << "\t 0x0000000000001007 \t W/R \t 'Number of channels'\n";
 
 	__COUT__ << addressSpaceSS.str() << "\n\n";
 
 	// hardware "registers"
-	uint64_t data_gen_cnt   = 0;
-	uint64_t data_gen_rate  = 100;  // number of loops to wait
-	uint8_t  led_register   = 0;
-	uint8_t  dataEnabled    = 0;
-	uint32_t streamToIP_reg = 0;
+	uint64_t data_gen_cnt       = 0;
+	uint64_t data_gen_rate      = 100;  // number of loops to wait
+	uint8_t  led_register       = 0;
+	uint8_t  dataEnabled        = 0;
+	uint32_t streamToIP_reg     = 0;
+	uint8_t  data_mode          = 0;   // 0=counter, 1=sine, 2=multi-ch waveforms
+	uint16_t sample_bit_width   = 16;  // ADC resolution: 8, 12, 16, or 32
+	uint16_t samples_per_packet = 1;   // 0 = auto-fill to max packet size
+	uint16_t num_channels       = 1;
 
 	const unsigned int RX_ADDR_OFFSET = 2;
 	const unsigned int RX_DATA_OFFSET = 10;
@@ -346,6 +461,34 @@ int main(int argc, char** argv)
 						__COUT__ << std::hex << ":::"
 						         << "Read data enable: 0x" << dataEnabled << std::endl;
 						break;
+					case 0x1004:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 1], 0, 7);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&data_mode,
+						       1);
+						__COUT__ << ":::" << "Read data mode: " << (int)data_mode << std::endl;
+						break;
+					case 0x1005:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&sample_bit_width,
+						       2);
+						__COUT__ << ":::" << "Read sample bit width: " << sample_bit_width << std::endl;
+						break;
+					case 0x1006:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&samples_per_packet,
+						       2);
+						__COUT__ << ":::" << "Read samples per packet: " << samples_per_packet << std::endl;
+						break;
+					case 0x1007:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&num_channels,
+						       2);
+						__COUT__ << ":::" << "Read num channels: " << num_channels << std::endl;
+						break;
 					default:
 						__COUT__ << std::hex << ":::"
 						         << "Unknown read address received." << std::endl;
@@ -473,6 +616,35 @@ int main(int argc, char** argv)
 						         << std::endl;
 						count = 0;  // reset count
 						break;
+					case 0x1004:
+						memcpy((void*)&data_mode,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       1);
+						__COUT__ << ":::" << "Write data mode: " << (int)data_mode << std::endl;
+						break;
+					case 0x1005:
+						memcpy((void*)&sample_bit_width,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						if(sample_bit_width != 8 && sample_bit_width != 12 &&
+						   sample_bit_width != 16 && sample_bit_width != 32)
+							sample_bit_width = 16;
+						__COUT__ << ":::" << "Write sample bit width: " << sample_bit_width << std::endl;
+						break;
+					case 0x1006:
+						memcpy((void*)&samples_per_packet,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						__COUT__ << ":::" << "Write samples per packet: " << samples_per_packet << std::endl;
+						break;
+					case 0x1007:
+						memcpy((void*)&num_channels,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						if(num_channels == 0)
+							num_channels = 1;
+						__COUT__ << ":::" << "Write num channels: " << num_channels << std::endl;
+						break;
 					default:
 						__COUT__ << std::hex << ":::"
 						         << "Unknown write address received." << std::endl;
@@ -517,20 +689,8 @@ int main(int argc, char** argv)
 					buff[0] =
 					    wasDataSent ? 2 : 1;  // type := burst middle (2) or first (1)
 					buff[1] = sequence++;     // 1-byte sequence id increments and wraps
-					memcpy((void*)&buff[TX_DATA_OFFSET],
-					       (void*)&count,
-					       8);  // make data counter
-					// memcpy((void *)&buff[TX_DATA_OFFSET],(void *)&data_gen_cnt,8);
-					// //make data counter
-
-					packetSz = TX_DATA_OFFSET + 8;  // only response with 1 QW
-					// packetSz = TX_DATA_OFFSET + 180; //only response with 1 QW
-					//	    			__COUT__ << packetSz << std::endl;
-					//	    			std::string data(buff,packetSz);
-					//	    			unsigned long long value;
-					//	    			memcpy((void *)&value, (void *)
-					// data.substr(2).data(),8); //make data counter
-					//	    			__COUT__ << value << std::endl;
+					packetSz = fillBurstPayload(buff, TX_DATA_OFFSET,
+					    data_mode, sample_bit_width, samples_per_packet, num_channels, count);
 
 					if((numberOfBytes = sendto(
 					        sendSockfd, buff, packetSz, 0, p->ai_addr, p->ai_addrlen)) ==
@@ -559,10 +719,8 @@ int main(int argc, char** argv)
 				// send a packet
 				buff[0] = 3;           // type := burst last (3)
 				buff[1] = sequence++;  // 1-byte sequence id increments and wraps
-				memcpy(
-				    (void*)&buff[TX_DATA_OFFSET], (void*)&count, 8);  // make data counter
-
-				packetSz = TX_DATA_OFFSET + 8;  // only response with 1 QW
+				packetSz = fillBurstPayload(buff, TX_DATA_OFFSET,
+				    data_mode, sample_bit_width, samples_per_packet, num_channels, count);
 
 				if(sendSockfd != -1)
 				{

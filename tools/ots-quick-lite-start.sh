@@ -22,6 +22,7 @@ echo "$0 $@" >$PWD/ots-quick-lite-start.lastrun.sh
 starttime=`date`
 Base=$PWD
 test -d log || mkdir log
+test -d tmp || mkdir tmp
 test -d Data && rmdir Data
 test -d databases && rmdir databases
 
@@ -174,7 +175,7 @@ function build_package()
       && cmake --build $Base/build/$name -j $BUILD_J \
       && cmake --install $Base/build/$name
     rc=$?
-    printf "%-20s rc=%d  %4ds\n" $name $rc $(( $(date +%s) - s )) | tee -a $Base/build-timings.txt
+    printf "%-20s rc=%d  %4ds\n" $name $rc $(( $(date +%s) - s )) | tee -a $Base/qls-log/build-timings.txt
     return $rc
 }
 
@@ -201,7 +202,7 @@ if ! grep -q raw_value fhicl-cpp/fhiclcpp/extended_value.h; then
     git -C fhicl-cpp apply $Base/deps/fhicl-cpp-db.patch || { echo "ERROR: fhicl-cpp patch did not apply (fhicl-cpp develop moved?)"; exit 1; }
 fi
 cd $Base
-: > $Base/build-timings.txt
+: > $Base/qls-log/build-timings.txt
 build_package Catch2 $Base/deps/Catch2 -DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_TESTING=OFF || exit 1
 
 ########################################
@@ -328,8 +329,8 @@ echo
 alias  kx='ots -k'
 alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
-# ultra clean: wipe build/ and local/install, rebuild deps and otsdaq from scratch (re-evaluates all dependencies, like spack concretize)
-alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/build-timings.txt; (cd $Base && ./$(basename "${BASH_SOURCE[0]}") --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+# ultra clean: wipe build/ and local/install, fetch the latest script from GitHub, rebuild everything
+alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/qls-log/build-timings.txt; (cd $Base && wget -q ${repo_base}/otsdaq_demo/raw/$branch/tools/ots-quick-lite-start.sh -O tmp/ots-quick-lite-start.sh --no-check-certificate && chmod 755 tmp/ots-quick-lite-start.sh && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
 export OTSDAQ_SETUP=1
 
@@ -412,7 +413,7 @@ fi
 
 echo
 echo "=== build timings:"
-cat $Base/build-timings.txt
+cat $Base/qls-log/build-timings.txt
 echo
 
 if [ $installStatus -eq 0 ]; then

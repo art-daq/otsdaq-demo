@@ -87,9 +87,9 @@ test -n "${do_help-}" -o $# -ge 2 && echo "$USAGE" && exit
 # "quick-start.sh_Fri_Jan_16_13:58:27_stderr.script"
 alloutput_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1"_"$2"_"$3"_"$4".script"}' )
 stderr_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1"_"$2"_"$3"_"$4"_stderr.script"}' )
-mkdir -p $Base/qls-log
-exec  > >(tee "$Base/qls-log/$alloutput_file")
-exec 2> >(tee "$Base/qls-log/$stderr_file")
+mkdir -p $Base/tmp
+exec  > >(tee "$Base/tmp/$alloutput_file")
+exec 2> >(tee "$Base/tmp/$stderr_file")
 
 ########################################
 ## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.24 (user-space download, no root)
@@ -175,7 +175,7 @@ function build_package()
       && cmake --build $Base/build/$name -j $BUILD_J \
       && cmake --install $Base/build/$name
     rc=$?
-    printf "%-20s rc=%d  %4ds\n" $name $rc $(( $(date +%s) - s )) | tee -a $Base/qls-log/build-timings.txt
+    printf "%-20s rc=%d  %4ds\n" $name $rc $(( $(date +%s) - s )) | tee -a $Base/tmp/build-timings.txt
     return $rc
 }
 
@@ -202,7 +202,7 @@ if ! grep -q raw_value fhicl-cpp/fhiclcpp/extended_value.h; then
     git -C fhicl-cpp apply $Base/deps/fhicl-cpp-db.patch || { echo "ERROR: fhicl-cpp patch did not apply (fhicl-cpp develop moved?)"; exit 1; }
 fi
 cd $Base
-: > $Base/qls-log/build-timings.txt
+: > $Base/tmp/build-timings.txt
 build_package Catch2 $Base/deps/Catch2 -DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_TESTING=OFF || exit 1
 
 ########################################
@@ -330,7 +330,7 @@ alias  kx='ots -k'
 alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 # ultra clean: wipe build/ and local/install, fetch the latest script from GitHub, rebuild everything
-alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/qls-log/build-timings.txt; (cd $Base && wget -q ${repo_base}/otsdaq_demo/raw/$branch/tools/ots-quick-lite-start.sh -O tmp/ots-quick-lite-start.sh --no-check-certificate && chmod 755 tmp/ots-quick-lite-start.sh && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt; (cd $Base && wget -q ${repo_base}/otsdaq_demo/raw/$branch/tools/ots-quick-lite-start.sh -O tmp/ots-quick-lite-start.sh --no-check-certificate && chmod 755 tmp/ots-quick-lite-start.sh && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
 export OTSDAQ_SETUP=1
 
@@ -375,7 +375,7 @@ if ! [ -d Data ] || ! [ -d databases ]; then
     export USER_DATA="$Base/Data"
     export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
     ./get_tutorial_data.sh
-    rm -rf $Base/qls-log/script_log; mv $Base/script_log $Base/qls-log/ 2>/dev/null
+    rm -rf $Base/tmp/script_log; mv $Base/script_log $Base/tmp/ 2>/dev/null
     rm -f get_tutorial_data.sh
 
     wget -q https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/reset_ots_tutorial.sh -O reset_ots_tutorial.sh --no-check-certificate
@@ -405,7 +405,7 @@ if [ $opt_no_build -eq 0 ]; then
         build_package $pkg $Base/srcs/$pkg $cet_cmake_flags
         installStatus=$?
         if [ $installStatus -ne 0 ]; then
-            echo "ERROR: build of $pkg failed (full log in $Base/qls-log/)"
+            echo "ERROR: build of $pkg failed (full log in $Base/tmp/)"
             break
         fi
     done
@@ -413,7 +413,7 @@ fi
 
 echo
 echo "=== build timings:"
-cat $Base/qls-log/build-timings.txt
+cat $Base/tmp/build-timings.txt
 echo
 
 if [ $installStatus -eq 0 ]; then

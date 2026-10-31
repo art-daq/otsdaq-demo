@@ -17,12 +17,11 @@ if [ $git_sts -eq 0 ];then
     exit 1
 fi
 
-echo "$0 $@" >$PWD/ots-quick-lite-start.lastrun.sh
-
 starttime=`date`
 Base=$PWD
-test -d log || mkdir log
 test -d tmp || mkdir tmp
+
+echo "$0 $@" >$Base/tmp/ots-quick-lite-start.lastrun.sh
 test -d Data && rmdir Data
 test -d databases && rmdir databases
 

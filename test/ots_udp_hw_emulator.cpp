@@ -111,6 +111,9 @@ unsigned int fillBurstPayload(char*    buff,
                               uint16_t sample_bit_width,
                               uint16_t samples_per_packet,
                               uint16_t num_channels,
+                              uint16_t wave_period,
+                              uint16_t wave_amplitude_pct,
+                              uint16_t wave_offset_pct,
                               time_t   count)
 {
 	if(data_mode == 0)
@@ -121,8 +124,11 @@ unsigned int fillBurstPayload(char*    buff,
 
 	uint32_t     maxVal = (1u << sample_bit_width) - 1;
 	unsigned int bps    = bytesPerSample(sample_bit_width);
-	uint16_t     nch    = (data_mode == 1) ? 1 : num_channels;
+	uint16_t     nch    = (data_mode == 1 || data_mode == 3) ? 1 : num_channels;
 	uint16_t     nsamp  = samples_per_packet;
+	double       period = wave_period ? (double)wave_period : 100.0;
+	double       amp    = wave_amplitude_pct / 100.0;
+	double       off    = wave_offset_pct / 100.0;
 
 	if(nsamp == 0)
 	{
@@ -136,11 +142,18 @@ unsigned int fillBurstPayload(char*    buff,
 	{
 		for(uint16_t ch = 0; ch < nch; ++ch)
 		{
-			uint32_t val;
-			if(data_mode == 1)
-				val = (uint32_t)((maxVal / 2) + (maxVal / 2) * sin(2.0 * M_PI * (count + s) / 100.0));
+			// unit waveform v in [0,1], then scale/shift: offset + amplitude*(v-0.5)
+			double v;
+			if(data_mode == 1)  // sine
+				v = 0.5 + 0.5 * sin(2.0 * M_PI * (count + s) / period);
+			else if(data_mode == 3)  // sawtooth ramp
+				v = fmod((double)(count + s), period) / period;
 			else
-				val = generateWaveformSample(ch, count + s, maxVal);
+				v = (double)generateWaveformSample(ch, count + s, maxVal) / maxVal;
+			v = off + amp * (v - 0.5);
+			if(v < 0.0) v = 0.0;
+			if(v > 1.0) v = 1.0;
+			uint32_t val = (uint32_t)(v * maxVal);
 
 			if(offset + bps > MAXBUFLEN) return offset;
 
@@ -284,10 +297,13 @@ int main(int argc, char** argv)
 	// ignored'\n";
 	addressSpaceSS << "\t 0x0000000100000008 \t W \t 'Stream destination port'\n";
 	addressSpaceSS << "\t 0x0000000100000009 \t W/R \t 'Burst data enable'\n";
-	addressSpaceSS << "\t 0x0000000000001004 \t W/R \t 'Data mode (0=counter,1=sine,2=multi-ch waveforms)'\n";
+	addressSpaceSS << "\t 0x0000000000001004 \t W/R \t 'Data mode (0=counter,1=sine 1ch,2=multi-ch waveforms,3=sawtooth 1ch)'\n";
 	addressSpaceSS << "\t 0x0000000000001005 \t W/R \t 'Sample bit width (8,12,16,32)'\n";
 	addressSpaceSS << "\t 0x0000000000001006 \t W/R \t 'Samples per packet (0=max fit)'\n";
 	addressSpaceSS << "\t 0x0000000000001007 \t W/R \t 'Number of channels'\n";
+	addressSpaceSS << "\t 0x0000000000001008 \t W/R \t 'Waveform period (samples/cycle, modes 1,3)'\n";
+	addressSpaceSS << "\t 0x0000000000001009 \t W/R \t 'Waveform amplitude (% full scale, modes 1-3)'\n";
+	addressSpaceSS << "\t 0x000000000000100A \t W/R \t 'Waveform offset (% full scale, modes 1-3)'\n";
 
 	__COUT__ << addressSpaceSS.str() << "\n\n";
 
@@ -297,10 +313,13 @@ int main(int argc, char** argv)
 	uint8_t  led_register       = 0;
 	uint8_t  dataEnabled        = 0;
 	uint32_t streamToIP_reg     = 0;
-	uint8_t  data_mode          = 0;   // 0=counter, 1=sine, 2=multi-ch waveforms
+	uint8_t  data_mode          = 0;   // 0=counter, 1=sine, 2=multi-ch waveforms, 3=sawtooth
 	uint16_t sample_bit_width   = 16;  // ADC resolution: 8, 12, 16, or 32
 	uint16_t samples_per_packet = 1;   // 0 = auto-fill to max packet size
 	uint16_t num_channels       = 1;
+	uint16_t wave_period        = 100; // samples per cycle (modes 1 and 3), 0 = 100
+	uint16_t wave_amplitude_pct = 100; // peak-to-peak as % of full scale (modes 1-3)
+	uint16_t wave_offset_pct    = 50;  // waveform center as % of full scale (modes 1-3)
 
 	const unsigned int RX_ADDR_OFFSET = 2;
 	const unsigned int RX_DATA_OFFSET = 10;
@@ -489,6 +508,27 @@ int main(int argc, char** argv)
 						       2);
 						__COUT__ << ":::" << "Read num channels: " << num_channels << std::endl;
 						break;
+					case 0x1008:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&wave_period,
+						       2);
+						__COUT__ << ":::" << "Read wave period: " << wave_period << std::endl;
+						break;
+					case 0x1009:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&wave_amplitude_pct,
+						       2);
+						__COUT__ << ":::" << "Read wave amplitude %: " << wave_amplitude_pct << std::endl;
+						break;
+					case 0x100A:
+						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
+						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
+						       (void*)&wave_offset_pct,
+						       2);
+						__COUT__ << ":::" << "Read wave offset %: " << wave_offset_pct << std::endl;
+						break;
 					default:
 						__COUT__ << std::hex << ":::"
 						         << "Unknown read address received." << std::endl;
@@ -645,6 +685,28 @@ int main(int argc, char** argv)
 							num_channels = 1;
 						__COUT__ << ":::" << "Write num channels: " << num_channels << std::endl;
 						break;
+					case 0x1008:
+						memcpy((void*)&wave_period,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						__COUT__ << ":::" << "Write wave period: " << wave_period << std::endl;
+						break;
+					case 0x1009:
+						memcpy((void*)&wave_amplitude_pct,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						if(wave_amplitude_pct > 1000)  // allow >100% to show clipping
+							wave_amplitude_pct = 1000;
+						__COUT__ << ":::" << "Write wave amplitude %: " << wave_amplitude_pct << std::endl;
+						break;
+					case 0x100A:
+						memcpy((void*)&wave_offset_pct,
+						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
+						       2);
+						if(wave_offset_pct > 100)
+							wave_offset_pct = 100;
+						__COUT__ << ":::" << "Write wave offset %: " << wave_offset_pct << std::endl;
+						break;
 					default:
 						__COUT__ << std::hex << ":::"
 						         << "Unknown write address received." << std::endl;
@@ -690,7 +752,8 @@ int main(int argc, char** argv)
 					    wasDataSent ? 2 : 1;  // type := burst middle (2) or first (1)
 					buff[1] = sequence++;     // 1-byte sequence id increments and wraps
 					packetSz = fillBurstPayload(buff, TX_DATA_OFFSET,
-					    data_mode, sample_bit_width, samples_per_packet, num_channels, count);
+					    data_mode, sample_bit_width, samples_per_packet, num_channels,
+					    wave_period, wave_amplitude_pct, wave_offset_pct, count);
 
 					if((numberOfBytes = sendto(
 					        sendSockfd, buff, packetSz, 0, p->ai_addr, p->ai_addrlen)) ==
@@ -720,7 +783,8 @@ int main(int argc, char** argv)
 				buff[0] = 3;           // type := burst last (3)
 				buff[1] = sequence++;  // 1-byte sequence id increments and wraps
 				packetSz = fillBurstPayload(buff, TX_DATA_OFFSET,
-				    data_mode, sample_bit_width, samples_per_packet, num_channels, count);
+				    data_mode, sample_bit_width, samples_per_packet, num_channels,
+					    wave_period, wave_amplitude_pct, wave_offset_pct, count);
 
 				if(sendSockfd != -1)
 				{

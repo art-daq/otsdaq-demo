@@ -270,10 +270,10 @@ void ots::ODWFViewer::analyze(art::Event const& e)
 		{
 			histograms_[ind] = std::unique_ptr<TH1D>(
 			    new TH1D(Form("Fragment_%d_hist", fragment_id),
-			             "Title Dennis",
-			             300,
-			             (Double_t)0.0,
-			             (Double_t)std::numeric_limits<uint8_t>::max()));
+				         "Title Dennis",
+				         300,
+				         (Double_t)0.0,
+				         (Double_t)std::numeric_limits<uint8_t>::max()));
 
 			histograms_[ind]->SetTitle(Form(
 			    "Frag %d, Type %s", fragment_id, fragmentTypeToString(fragtype).c_str()));

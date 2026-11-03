@@ -81,13 +81,9 @@ inline ots::DataGenFragment::DataBlob* ots::DataGenFragmentWriter::dataBegin()
 }
 
 inline ots::DataGenFragment::DataBlob* ots::DataGenFragmentWriter::dataEnd()
-{
-	return dataBegin() + artdaq_Fragment_.dataSize() / sizeof(DataBlob);
-}
+{ return dataBegin() + artdaq_Fragment_.dataSize() / sizeof(DataBlob); }
 
 inline void ots::DataGenFragmentWriter::resize(size_t nBytes)
-{
-	artdaq_Fragment_.resizeBytes(nBytes);
-}
+{ artdaq_Fragment_.resizeBytes(nBytes); }
 
 #endif /* artdaq_demo_Overlays_DataGenFragmentWriter_hh */

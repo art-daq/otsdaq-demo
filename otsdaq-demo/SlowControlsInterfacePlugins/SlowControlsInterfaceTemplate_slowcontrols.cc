@@ -30,9 +30,7 @@ void SlowControlsInterfaceTemplate::destroy() {}
 
 //==============================================================================
 std::vector<std::string /*Name*/> SlowControlsInterfaceTemplate::getChannelList()
-{
-	return {"a", "b"};
-}
+{ return {"a", "b"}; }
 
 //==============================================================================
 std::string SlowControlsInterfaceTemplate::getList(const std::string& /*format*/)
@@ -54,16 +52,12 @@ void SlowControlsInterfaceTemplate::unsubscribe(const std::string& /*Name*/) {}
 //==============================================================================
 std::array<std::string, 4> SlowControlsInterfaceTemplate::getCurrentValue(
     const std::string& /*Name*/)
-{
-	return {"a", "b", "c", "d"};
-}
+{ return {"a", "b", "c", "d"}; }
 
 //==============================================================================
 std::array<std::string, 9> SlowControlsInterfaceTemplate::getSettings(
     const std::string& /*Name*/)
-{
-	return {"a", "b", "c", "d", "e", "f", "g", "h", "i"};
-}
+{ return {"a", "b", "c", "d", "e", "f", "g", "h", "i"}; }
 
 //==============================================================================
 std::vector<std::vector<std::string>> SlowControlsInterfaceTemplate::getLastAlarms(

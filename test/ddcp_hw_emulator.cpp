@@ -581,7 +581,7 @@ int main(int argc, char** argv)
 					}
 
 				}  // end READ handling
-				   // =====================================================
+				// =====================================================
 				else if(payloadBytes % 8 == 0 && count == payloadBytes / 8 &&
 				        operation == 4)  // write
 				{
@@ -671,7 +671,7 @@ int main(int argc, char** argv)
 					}
 
 				}  // end WRITE handling
-				   // ==================================================
+				// ==================================================
 				else if(payloadBytes == 0 && operation == 1 << 0)  // query
 				{
 					__COUT__ << "Query!" << std::endl;
@@ -719,7 +719,7 @@ int main(int argc, char** argv)
 					}
 
 				}  // end QUERY handling
-				   // =====================================================
+				// =====================================================
 				else
 					__COUT__ << ":::"
 					         << "ERROR: The formatting of the packet received is wrong! "

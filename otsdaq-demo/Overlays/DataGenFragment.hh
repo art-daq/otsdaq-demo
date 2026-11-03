@@ -67,7 +67,9 @@ class ots::DataGenFragment
 	              "DataGenFragment::Header size changed");
 
 	struct DataBlob
-	{ float data[16000]; };
+	{
+		float data[16000];
+	};
 
 	/// The constructor simply sets its const private member "artdaq_Fragment_"
 	/// to refer to the artdaq::Fragment object
@@ -88,7 +90,9 @@ class ots::DataGenFragment
 	///
 	/// End of the data, returned as a pointer
 	DataBlob const* dataEnd() const
-	{ return dataBegin() + (artdaq_Fragment_.dataSize() / sizeof(DataBlob)); }
+	{
+		return dataBegin() + (artdaq_Fragment_.dataSize() / sizeof(DataBlob));
+	}
 
   protected:
 	/// header_() simply takes the address of the start of this overlay's

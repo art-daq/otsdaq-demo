@@ -498,15 +498,16 @@ int main(int argc, char** argv)
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&data_mode,
 						       1);
-						__COUT__ << ":::" << "Read data mode: " << (int)data_mode
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Read data mode: " << (int)data_mode << std::endl;
 						break;
 					case 0x1005:
 						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&sample_bit_width,
 						       2);
-						__COUT__ << ":::" << "Read sample bit width: " << sample_bit_width
+						__COUT__ << ":::"
+						         << "Read sample bit width: " << sample_bit_width
 						         << std::endl;
 						break;
 					case 0x1006:
@@ -514,41 +515,42 @@ int main(int argc, char** argv)
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&samples_per_packet,
 						       2);
-						__COUT__
-						    << ":::" << "Read samples per packet: " << samples_per_packet
-						    << std::endl;
+						__COUT__ << ":::"
+						         << "Read samples per packet: " << samples_per_packet
+						         << std::endl;
 						break;
 					case 0x1007:
 						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&num_channels,
 						       2);
-						__COUT__ << ":::" << "Read num channels: " << num_channels
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Read num channels: " << num_channels << std::endl;
 						break;
 					case 0x1008:
 						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&wave_period,
 						       2);
-						__COUT__ << ":::" << "Read wave period: " << wave_period
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Read wave period: " << wave_period << std::endl;
 						break;
 					case 0x1009:
 						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&wave_amplitude_pct,
 						       2);
-						__COUT__
-						    << ":::" << "Read wave amplitude %: " << wave_amplitude_pct
-						    << std::endl;
+						__COUT__ << ":::"
+						         << "Read wave amplitude %: " << wave_amplitude_pct
+						         << std::endl;
 						break;
 					case 0x100A:
 						memset((void*)&buff[handlerIndex + TX_DATA_OFFSET + 2], 0, 6);
 						memcpy((void*)&buff[handlerIndex + TX_DATA_OFFSET],
 						       (void*)&wave_offset_pct,
 						       2);
-						__COUT__ << ":::" << "Read wave offset %: " << wave_offset_pct
+						__COUT__ << ":::"
+						         << "Read wave offset %: " << wave_offset_pct
 						         << std::endl;
 						break;
 					default:
@@ -682,8 +684,8 @@ int main(int argc, char** argv)
 						memcpy((void*)&data_mode,
 						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
 						       1);
-						__COUT__ << ":::" << "Write data mode: " << (int)data_mode
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Write data mode: " << (int)data_mode << std::endl;
 						break;
 					case 0x1005:
 						memcpy((void*)&sample_bit_width,
@@ -692,17 +694,17 @@ int main(int argc, char** argv)
 						if(sample_bit_width != 8 && sample_bit_width != 12 &&
 						   sample_bit_width != 16 && sample_bit_width != 32)
 							sample_bit_width = 16;
-						__COUT__
-						    << ":::" << "Write sample bit width: " << sample_bit_width
-						    << std::endl;
+						__COUT__ << ":::"
+						         << "Write sample bit width: " << sample_bit_width
+						         << std::endl;
 						break;
 					case 0x1006:
 						memcpy((void*)&samples_per_packet,
 						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
 						       2);
-						__COUT__
-						    << ":::" << "Write samples per packet: " << samples_per_packet
-						    << std::endl;
+						__COUT__ << ":::"
+						         << "Write samples per packet: " << samples_per_packet
+						         << std::endl;
 						break;
 					case 0x1007:
 						memcpy((void*)&num_channels,
@@ -710,15 +712,15 @@ int main(int argc, char** argv)
 						       2);
 						if(num_channels == 0)
 							num_channels = 1;
-						__COUT__ << ":::" << "Write num channels: " << num_channels
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Write num channels: " << num_channels << std::endl;
 						break;
 					case 0x1008:
 						memcpy((void*)&wave_period,
 						       (void*)&buff[handlerIndex + RX_DATA_OFFSET],
 						       2);
-						__COUT__ << ":::" << "Write wave period: " << wave_period
-						         << std::endl;
+						__COUT__ << ":::"
+						         << "Write wave period: " << wave_period << std::endl;
 						break;
 					case 0x1009:
 						memcpy((void*)&wave_amplitude_pct,
@@ -726,9 +728,9 @@ int main(int argc, char** argv)
 						       2);
 						if(wave_amplitude_pct > 1000)  // allow >100% to show clipping
 							wave_amplitude_pct = 1000;
-						__COUT__
-						    << ":::" << "Write wave amplitude %: " << wave_amplitude_pct
-						    << std::endl;
+						__COUT__ << ":::"
+						         << "Write wave amplitude %: " << wave_amplitude_pct
+						         << std::endl;
 						break;
 					case 0x100A:
 						memcpy((void*)&wave_offset_pct,
@@ -736,7 +738,8 @@ int main(int argc, char** argv)
 						       2);
 						if(wave_offset_pct > 100)
 							wave_offset_pct = 100;
-						__COUT__ << ":::" << "Write wave offset %: " << wave_offset_pct
+						__COUT__ << ":::"
+						         << "Write wave offset %: " << wave_offset_pct
 						         << std::endl;
 						break;
 					default:

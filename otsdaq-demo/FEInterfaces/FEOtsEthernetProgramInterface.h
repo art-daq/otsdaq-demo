@@ -1,5 +1,5 @@
-#ifndef _ots_FEOtsEthernetProgramInterface_h_
-#define _ots_FEOtsEthernetProgramInterface_h_
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FEOTSETHERNETPROGRAMINTERFACE_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FEOTSETHERNETPROGRAMINTERFACE_H_
 
 #include "otsdaq-components/FEInterfaces/FEOtsUDPTemplateInterface.h"
 
@@ -46,4 +46,4 @@ class FEOtsEthernetProgramInterface
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FEOTSETHERNETPROGRAMINTERFACE_H_

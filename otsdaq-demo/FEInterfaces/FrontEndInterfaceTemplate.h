@@ -1,5 +1,5 @@
-#ifndef _ots_FrontEndInterfaceTemplate_h_
-#define _ots_FrontEndInterfaceTemplate_h_
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FRONTENDINTERFACETEMPLATE_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FRONTENDINTERFACETEMPLATE_H_
 
 #include <map>
 #include <string>
@@ -34,4 +34,4 @@ class FrontEndInterfaceTemplate : public FEVInterface
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_FEINTERFACES_FRONTENDINTERFACETEMPLATE_H_

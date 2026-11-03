@@ -29,7 +29,7 @@ void SlowControlsInterfaceTemplate::initialize() {}
 void SlowControlsInterfaceTemplate::destroy() {}
 
 //==============================================================================
-std::vector<std::string /*Name*/> SlowControlsInterfaceTemplate::getChannelList()
+std::vector<std::string /**Name */> SlowControlsInterfaceTemplate::getChannelList()
 {
 	return {"a", "b"};
 }

@@ -1,5 +1,5 @@
-#ifndef _ots_TemplateSupervisor_h
-#define _ots_TemplateSupervisor_h
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_TEMPLATEDIRECTORY_TEMPLATESUPERVISOR_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_TEMPLATEDIRECTORY_TEMPLATESUPERVISOR_H_
 
 #include "otsdaq/SOAPUtilities/SOAPMessenger.h"
 
@@ -38,4 +38,4 @@ class TemplateSupervisor : public xdaq::Application, public SOAPMessenger
 };
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_TEMPLATEDIRECTORY_TEMPLATESUPERVISOR_H_

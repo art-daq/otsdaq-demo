@@ -1,8 +1,9 @@
-#ifndef _ots_SlowControlsInterfaceTemplate_h
-#define _ots_SlowControlsInterfaceTemplate_h
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_SLOWCONTROLSINTERFACEPLUGINS_SLOWCONTROLSINTERFACETEMPLATE_H_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_SLOWCONTROLSINTERFACEPLUGINS_SLOWCONTROLSINTERFACETEMPLATE_H_
 
 #include <array>
 #include <string>
+#include <vector>
 
 #include "otsdaq/SlowControlsCore/SlowControlsVInterface.h"
 
@@ -21,7 +22,7 @@ class SlowControlsInterfaceTemplate : public SlowControlsVInterface
 	void initialize() override;
 	void destroy();
 
-    std::vector<std::string /*Name*/> 			getChannelList		(void) override;
+    std::vector<std::string /***Name  */> 			getChannelList		(void) override;
 	std::string                					getList				(const std::string& format) override;
 	void                       					subscribe			(const std::string& Name)  override;
 	void                       					subscribeJSON		(const std::string& List) override;
@@ -40,4 +41,4 @@ class SlowControlsInterfaceTemplate : public SlowControlsVInterface
 // clang-format on
 }  // namespace ots
 
-#endif
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_SLOWCONTROLSINTERFACEPLUGINS_SLOWCONTROLSINTERFACETEMPLATE_H_

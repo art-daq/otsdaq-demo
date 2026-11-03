@@ -1,5 +1,5 @@
-#ifndef artdaq_ots_Overlays_DataGenFragmentWriter_hh
-#define artdaq_ots_Overlays_DataGenFragmentWriter_hh
+#ifndef OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENTWRITER_HH_
+#define OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENTWRITER_HH_
 
 ////////////////////////////////////////////////////////////////////////
 /// DataGenFragmentWriter
@@ -90,4 +90,4 @@ inline void ots::DataGenFragmentWriter::resize(size_t nBytes)
 	artdaq_Fragment_.resizeBytes(nBytes);
 }
 
-#endif /* artdaq_demo_Overlays_DataGenFragmentWriter_hh */
+#endif  // OTSDAQ_DEMO_OTSDAQ_DEMO_OVERLAYS_DATAGENFRAGMENTWRITER_HH_

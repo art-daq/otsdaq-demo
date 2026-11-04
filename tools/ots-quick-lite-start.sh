@@ -91,7 +91,8 @@ exec  > >(tee "$Base/tmp/$alloutput_file")
 exec 2> >(tee "$Base/tmp/$stderr_file")
 
 ########################################
-## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.24 (user-space download, no root)
+## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.29 (user-space download, no root)
+## (3.29 is where CMAKE_PROJECT_TOP_LEVEL_INCLUDES accepts module names, which cet_cmake_flags relies on)
 ########################################
 if [ -f /opt/rh/gcc-toolset-13/enable ]; then
     source /opt/rh/gcc-toolset-13/enable
@@ -102,13 +103,21 @@ fi
 cmake_ok=0
 if command -v cmake >/dev/null 2>&1; then
     cmake_ver=$(cmake --version | head -1 | awk '{print $3}')
-    [ "$(printf '%s\n3.24\n' "$cmake_ver" | sort -V | head -1)" = "3.24" ] && cmake_ok=1
+    [ "$(printf '%s\n3.29\n' "$cmake_ver" | sort -V | head -1)" = "3.29" ] && cmake_ok=1
 fi
 if [ $cmake_ok -eq 0 ]; then
     if ! [ -x $Base/cmake/bin/cmake ]; then
-        echo "Downloading cmake 4.4.4 into $Base/cmake (user-space, no root)..."
+        case "$(uname -m)" in
+            x86_64)  cmake_arch=linux-x86_64;;
+            aarch64) cmake_arch=linux-aarch64;;
+            *) echo "ERROR: cmake >= 3.29 not found and Kitware has no prebuilt cmake for $(uname -m). Install cmake >= 3.29 and rerun."; exit 1;;
+        esac
+        echo "Downloading cmake 4.4.4 ($cmake_arch) into $Base/cmake (user-space, no root)..."
         mkdir -p $Base/cmake
-        curl -fsSL https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-linux-x86_64.tar.gz | tar xz -C $Base/cmake --strip-components=1
+        curl -fsSL -o $Base/tmp/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-$cmake_arch.tar.gz \
+          && tar xzf $Base/tmp/cmake.tar.gz -C $Base/cmake --strip-components=1 \
+          || { echo "ERROR: cmake download/extract failed. Install cmake >= 3.29 and rerun."; exit 1; }
+        rm -f $Base/tmp/cmake.tar.gz
     fi
     export PATH=$Base/cmake/bin:$PATH
 fi
@@ -119,15 +128,21 @@ echo "Using $(cmake --version | head -1) and $(g++ --version | head -1)"
 ## Report everything missing at once, with the exact install commands, then stop.
 ########################################
 missing_rpm=(); missing_deb=(); fallback=()
-need() { # need <probe file> <rpm name> <deb name>
-    [ -e "$1" ] || { missing_rpm+=($2); missing_deb+=($3); }
+need() { # need <header> <rpm name> <deb name>: probe the compiler's include path (Debian multiarch
+         # keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet
+    if command -v g++ >/dev/null 2>&1; then
+        echo "#include <$1>" | g++ -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
+    elif [ -e "/usr/include/$1" ]; then
+        return
+    fi
+    missing_rpm+=($2); missing_deb+=($3)
 }
-need /usr/include/boost/version.hpp            boost-devel      libboost-all-dev
-need /usr/include/sqlite3.h                    sqlite-devel     libsqlite3-dev
-need /usr/include/tbb/tbb.h                    tbb-devel        libtbb-dev
-need /usr/include/openssl/ssl.h                openssl-devel    libssl-dev
-need /usr/include/curl/curl.h                  libcurl-devel    libcurl4-openssl-dev
-need /usr/include/python3*/Python.h            python3-devel    python3-dev
+need boost/version.hpp            boost-devel      libboost-all-dev
+need sqlite3.h                    sqlite-devel     libsqlite3-dev
+need tbb/tbb.h                    tbb-devel        libtbb-dev
+need openssl/ssl.h                openssl-devel    libssl-dev
+need curl/curl.h                  libcurl-devel    libcurl4-openssl-dev
+ls /usr/include/python3*/Python.h >/dev/null 2>&1 || { missing_rpm+=(python3-devel); missing_deb+=(python3-dev); }
 for t in git curl wget tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
 # used at run time by the `ots` script, not by this installer
 command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(gettext-base); }
@@ -245,14 +260,13 @@ build_package artdaq_database $Base/deps/artdaq_database $cet_cmake_flags -DWITH
 function checkout_package()
 {
     pkg=$1
+    # any failure aborts: otherwise the build would silently use whatever branch is checked out
     if ! [ -d $pkg ]; then
-        git clone $repo_base/$pkg
-        git -C $pkg checkout $branch
+        git clone $repo_base/$pkg          || { echo "ERROR: git clone $repo_base/$pkg failed"; exit 1; }
+        git -C $pkg checkout $branch       || { echo "ERROR: branch '$branch' not found in $pkg"; exit 1; }
     elif [ $opt_no_pull -eq 0 ]; then
-        cd $pkg
-        git checkout $branch
-        git pull
-        cd ..
+        git -C $pkg checkout $branch       || { echo "ERROR: branch '$branch' not found in $pkg"; exit 1; }
+        git -C $pkg pull                   || { echo "ERROR: git pull failed in $pkg"; exit 1; }
     fi
 }
 
@@ -328,8 +342,9 @@ echo
 alias  kx='ots -k'
 alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
-# ultra clean: wipe build/ and local/install, fetch the latest script from GitHub, rebuild everything
-alias  mz_uc='date; start_time=\$(date +%s); rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt; (cd $Base && wget -q ${repo_base}/otsdaq_demo/raw/$branch/tools/ots-quick-lite-start.sh -O tmp/ots-quick-lite-start.sh --no-check-certificate && chmod 755 tmp/ots-quick-lite-start.sh && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+# ultra clean: update the installer from srcs/otsdaq-demo (git pull, so it also works with a local --repo-base),
+# then wipe build/ and local/install and rebuild everything. The copy is taken before anything is removed.
+alias  mz_uc='date; start_time=\$(date +%s); (cd $Base && { git -C srcs/otsdaq-demo pull --ff-only || echo "WARNING: could not pull srcs/otsdaq-demo; using its current copy of the installer"; } && cp srcs/otsdaq-demo/tools/ots-quick-lite-start.sh tmp/ots-quick-lite-start.sh && chmod 755 tmp/ots-quick-lite-start.sh && rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
 export OTSDAQ_SETUP=1
 
@@ -362,25 +377,27 @@ EOF
 ########################################
 cd $Base
 
-# Seed Data and databases on first install only; rebuilds (mz_uc) leave them alone.
-if ! [ -d Data ] || ! [ -d databases ]; then
-    git clone --depth 1 https://github.com/art-daq/otsdaq_demo -b develop otsdaq_demo_seed
-    [ -d databases ] || cp -a otsdaq_demo_seed/NoGitDatabases databases
-    [ -d Data ]      || cp -a otsdaq_demo_seed/NoGitData Data
-    rm -rf otsdaq_demo_seed
-
-    wget -q https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh -O get_tutorial_data.sh --no-check-certificate
-    chmod 755 get_tutorial_data.sh
+# Install the tutorial Data and databases on first install only; rebuilds (mz_uc) leave them alone.
+# The helper scripts are taken from the local checkout (no unauthenticated downloads).
+# get_tutorial_data.sh backs up and replaces BOTH areas, so it is only run when both are absent.
+if ! [ -d Data ] && ! [ -d databases ]; then
+    cp $Base/srcs/otsdaq-demo/tools/get_tutorial_data.sh . && chmod 755 get_tutorial_data.sh \
+      || { echo "ERROR: srcs/otsdaq-demo/tools/get_tutorial_data.sh not found"; exit 1; }
     export USER_DATA="$Base/Data"
     export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
     ./get_tutorial_data.sh
     rm -rf $Base/tmp/script_log; mv $Base/script_log $Base/tmp/ 2>/dev/null
     rm -f get_tutorial_data.sh
+    [ -d Data ] && [ -d databases ] || { echo "ERROR: get_tutorial_data.sh did not create Data/ and databases/ (see $Base/tmp/script_log)"; exit 1; }
 
-    wget -q https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/reset_ots_tutorial.sh -O reset_ots_tutorial.sh --no-check-certificate
-    chmod 755 reset_ots_tutorial.sh
+    cp $Base/srcs/otsdaq-demo/tools/reset_ots_tutorial.sh . && chmod 755 reset_ots_tutorial.sh
+elif ! [ -d Data ] || ! [ -d databases ]; then
+    echo "ERROR: only one of Data/ and databases/ exists in $Base; refusing to guess."
+    echo "       Either restore the missing one from a Data.bak*/databases.bak* copy, or move the other one"
+    echo "       aside too and rerun to install a fresh tutorial set (both are backed up by get_tutorial_data.sh)."
+    exit 1
 else
-    echo -e "UpdateOTS.sh [${LINENO}]  \t Data/ and databases/ already present, keeping them"
+    echo -e "ots-quick-lite-start.sh [${LINENO}]  \t Data/ and databases/ already present, keeping them"
 fi
 
 export USER_DATA="$Base/Data"

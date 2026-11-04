@@ -118,7 +118,9 @@ unsigned int fillBurstPayload(char*    buff,
                               uint16_t wave_period,
                               uint16_t wave_amplitude_pct,
                               uint16_t wave_offset_pct,
-                              time_t   count)
+                              time_t   count,
+                              uint64_t& waveSampleIndex)  // waveform phase: advanced by
+                                                          // the samples emitted here
 {
 	if(data_mode == 0)
 	{
@@ -126,44 +128,48 @@ unsigned int fillBurstPayload(char*    buff,
 		return txOffset + 8;
 	}
 
-	uint32_t     maxVal = (1u << sample_bit_width) - 1;
-	unsigned int bps    = bytesPerSample(sample_bit_width);
-	uint16_t     nch    = (data_mode == 1 || data_mode == 3) ? 1 : num_channels;
-	uint16_t     nsamp  = samples_per_packet;
-	double       period = wave_period ? (double)wave_period : 100.0;
-	double       amp    = wave_amplitude_pct / 100.0;
-	double       off    = wave_offset_pct / 100.0;
+	// shift in 64 bits: 1u << 32 is undefined for the advertised 32-bit width
+	uint16_t     bitWidth = sample_bit_width > 32 ? 32 : sample_bit_width;
+	uint32_t     maxVal   = (uint32_t)((1ull << bitWidth) - 1);
+	unsigned int bps      = bytesPerSample(bitWidth);
+	uint16_t     nch      = (data_mode == 1 || data_mode == 3) ? 1 : num_channels;
+	if(nch == 0)
+		nch = 1;
+	double period = wave_period ? (double)wave_period : 100.0;
+	double amp    = wave_amplitude_pct / 100.0;
+	double off    = wave_offset_pct / 100.0;
 
+	// only complete channel groups go into a packet: clamp an explicit request to
+	// what fits, auto-size to the maximum, and send nothing if not even one fits
+	unsigned int maxSamples = (MAXBUFLEN - txOffset) / (nch * bps);
+	unsigned int nsamp      = samples_per_packet;
+	if(nsamp == 0 || nsamp > maxSamples)
+		nsamp = maxSamples;
 	if(nsamp == 0)
-	{
-		unsigned int maxPayload = MAXBUFLEN - txOffset;
-		nsamp                   = maxPayload / (nch * bps);
-		if(nsamp == 0)
-			nsamp = 1;
-	}
+		return txOffset;
 
 	unsigned int offset = txOffset;
-	for(uint16_t s = 0; s < nsamp; ++s)
+	for(unsigned int s = 0; s < nsamp; ++s)
 	{
+		// the loop counter 'count' advances per polling loop, not per emitted sample,
+		// so the waveform phase uses its own index
+		time_t t = (time_t)(waveSampleIndex + s);
 		for(uint16_t ch = 0; ch < nch; ++ch)
 		{
 			// unit waveform v in [0,1], then scale/shift: offset + amplitude*(v-0.5)
 			double v;
 			if(data_mode == 1)  // sine
-				v = 0.5 + 0.5 * sin(2.0 * M_PI * (count + s) / period);
+				v = 0.5 + 0.5 * sin(2.0 * M_PI * t / period);
 			else if(data_mode == 3)  // sawtooth ramp
-				v = fmod((double)(count + s), period) / period;
+				v = fmod((double)t, period) / period;
 			else
-				v = (double)generateWaveformSample(ch, count + s, maxVal) / maxVal;
+				v = (double)generateWaveformSample(ch, t, maxVal) / maxVal;
 			v = off + amp * (v - 0.5);
 			if(v < 0.0)
 				v = 0.0;
 			if(v > 1.0)
 				v = 1.0;
 			uint32_t val = (uint32_t)(v * maxVal);
-
-			if(offset + bps > MAXBUFLEN)
-				return offset;
 
 			if(bps == 1)
 				buff[offset] = (char)(val & 0xFF);
@@ -179,6 +185,7 @@ unsigned int fillBurstPayload(char*    buff,
 			offset += bps;
 		}
 	}
+	waveSampleIndex += nsamp;
 	return offset;
 }
 
@@ -351,7 +358,8 @@ int main(int argc, char** argv)
 	FD_ZERO(&masterfds);
 	FD_SET(sockfd, &masterfds);
 
-	time_t count = 0;
+	time_t   count           = 0;
+	uint64_t waveSampleIndex = 0;  // waveform phase, advanced by fillBurstPayload()
 
 	int handlerIndex;
 	int totalNumberOfBytes;
@@ -795,7 +803,8 @@ int main(int argc, char** argv)
 					                            wave_period,
 					                            wave_amplitude_pct,
 					                            wave_offset_pct,
-					                            count);
+					                            count,
+					                            waveSampleIndex);
 
 					if((numberOfBytes = sendto(
 					        sendSockfd, buff, packetSz, 0, p->ai_addr, p->ai_addrlen)) ==
@@ -833,7 +842,8 @@ int main(int argc, char** argv)
 				                            wave_period,
 				                            wave_amplitude_pct,
 				                            wave_offset_pct,
-				                            count);
+				                            count,
+				                            waveSampleIndex);
 
 				if(sendSockfd != -1)
 				{

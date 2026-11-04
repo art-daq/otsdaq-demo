@@ -49,7 +49,7 @@ chmod +x ots-quick-lite-start.sh
 
 That is it. The script:
 
-1. enables `gcc-toolset-13` if found, downloads `cmake` into `./cmake` if the system one is too old (< 3.24)
+1. enables `gcc-toolset-13` if found, downloads `cmake` into `./cmake` if the system one is too old (< 3.29; x86_64 and aarch64)
 2. clones and builds the cet suite, TRACE, and artdaq-database into `./local/install`
    (~90 s on 24 cores). fhicl-cpp gets the small `raw_value` patch that artdaq-database
    needs (the same one the `fhicl-cpp+db` Spack variant applies).
@@ -120,7 +120,7 @@ ots/
   Removing the artdaq dependence is done at the CMake level; removing xdaq is a
   source-level job and is the next phase. Until then the build stops where xdaq
   headers are first needed — the script shows you exactly where.
-- `Data/` and `databases/` seed content still comes from the `otsdaq_demo` repo
-  (`NoGitData`, `NoGitDatabases`) and the tutorial data scripts, as in the full install.
+- `Data/` and `databases/` come from `get_tutorial_data.sh` (the `otsdaq_demo_data`
+  tutorial repo), as in the full install; they are created only when both are absent.
 - Tested on AlmaLinux 9.6 x86_64 with gcc-toolset-13. Other distributions and
   aarch64 SoCs should work with the equivalent packages but have not been tried yet.

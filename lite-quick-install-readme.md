@@ -39,13 +39,18 @@ Internet access to `github.com` is required during install.
 
 ```bash
 mkdir ots && cd ots
-wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/feature/ots-lite/tools/ots-quick-lite-start.sh
+wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/ots-quick-lite-start.sh
 chmod +x ots-quick-lite-start.sh
-./ots-quick-lite-start.sh --branch feature/ots-lite
+./ots-quick-lite-start.sh
 ```
 
-(Until the lite work is merged into `develop`, both the URL and `--branch` must name
-`feature/ots-lite`; afterwards drop `--branch` and use the `develop` URL.)
+or as one line:
+
+```bash
+mkdir ots && cd ots && wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/ots-quick-lite-start.sh && chmod +x ots-quick-lite-start.sh && ./ots-quick-lite-start.sh
+```
+
+(To install a feature branch of the lite repos instead, add `--branch <name>`.)
 
 That is it. The script:
 

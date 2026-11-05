@@ -109,16 +109,16 @@ uint32_t generateWaveformSample(int channel, time_t count, uint32_t maxVal)
 	return (uint32_t)(v * maxVal);
 }
 
-unsigned int fillBurstPayload(char*    buff,
-                              int      txOffset,
-                              uint8_t  data_mode,
-                              uint16_t sample_bit_width,
-                              uint16_t samples_per_packet,
-                              uint16_t num_channels,
-                              uint16_t wave_period,
-                              uint16_t wave_amplitude_pct,
-                              uint16_t wave_offset_pct,
-                              time_t   count,
+unsigned int fillBurstPayload(char*     buff,
+                              int       txOffset,
+                              uint8_t   data_mode,
+                              uint16_t  sample_bit_width,
+                              uint16_t  samples_per_packet,
+                              uint16_t  num_channels,
+                              uint16_t  wave_period,
+                              uint16_t  wave_amplitude_pct,
+                              uint16_t  wave_offset_pct,
+                              time_t    count,
                               uint64_t& waveSampleIndex)  // waveform phase: advanced by
                                                           // the samples emitted here
 {

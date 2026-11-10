@@ -193,6 +193,24 @@ function build_package()
     return $rc
 }
 
+function ots_discover_repos()
+{
+    # ots_discover_repos <srcs dir>: the otsdaq repos to build, one per line, in build order.
+    # otsdaq and the three standard repos come first (in that order); any other
+    # srcs/otsdaq-*/ directory with a CMakeLists.txt (e.g. an experiment repo such as
+    # otsdaq-td-ims-asic) follows, alphabetically, so it builds after otsdaq.
+    local srcs=$1 known="otsdaq otsdaq-components otsdaq-utilities otsdaq-demo" r d
+    for r in $known; do
+        [ -f $srcs/$r/CMakeLists.txt ] && echo $r
+    done
+    for d in $srcs/otsdaq-*/; do
+        r=$(basename $d)
+        case " $known " in *" $r "*) continue;; esac
+        [ -f $d/CMakeLists.txt ] && echo $r
+    done
+    return 0
+}
+
 ########################################
 ## cet suite from source (~40s on 24 cores): cetmodules, cetlib-except, hep-concurrency, cetlib, fhicl-cpp, messagefacility
 ## then TRACE and artdaq-database (~50s), all into local/install
@@ -340,8 +358,44 @@ echo -e "setup_ots.sh:\${LINENO} |  \t  Now your output data path is OTSDAQ_DATA
 echo
 
 alias  kx='ots -k'
-alias  mb='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
-alias  mz='date; start_time=\$(date +%s); for p in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do rm -rf $Base/build/\$p; cmake -S $Base/srcs/\$p -B $Base/build/\$p $cet_cmake_flags_alias && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break; done; end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+unalias mb mz 2>/dev/null   # earlier versions of this file defined mb/mz as aliases, which would shadow the functions
+OTS_REPO_LIST_FILE=$Base/build/ots_repos.list
+$(declare -f ots_discover_repos)
+ots_cmake_configure()
+{
+    cmake -S $Base/srcs/\$1 -B $Base/build/\$1 $cet_cmake_flags_alias
+}
+# mb: incremental build over the repo list that mz captured in \$OTS_REPO_LIST_FILE
+# (if there is no list yet, it is captured once from srcs/). A repo in the list that has
+# not been configured yet is configured first.
+mb()
+{
+    local start_time=\$(date +%s) p
+    date
+    if [ ! -s \$OTS_REPO_LIST_FILE ]; then
+        echo "mb: no repo list yet; capturing it from $Base/srcs (mz recaptures it)"
+        mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
+    fi
+    echo "mb: repos: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+    for p in \$(cat \$OTS_REPO_LIST_FILE); do
+        { [ -f $Base/build/\$p/CMakeCache.txt ] || ots_cmake_configure \$p; } && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
+    done
+    date
+    echo "Full time: \$((\$(date +%s) - start_time)) seconds"
+}
+# mz: recapture the repo list from srcs/, then clean build every repo in it
+mz()
+{
+    local start_time=\$(date +%s) p
+    date
+    mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
+    echo "mz: repo list captured in \$OTS_REPO_LIST_FILE: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+    for p in \$(cat \$OTS_REPO_LIST_FILE); do
+        rm -rf $Base/build/\$p; ots_cmake_configure \$p && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
+    done
+    date
+    echo "Full time: \$((\$(date +%s) - start_time)) seconds"
+}
 # ultra clean: update the installer from srcs/otsdaq-demo (git pull, so it also works with a local --repo-base),
 # then wipe build/ and local/install and rebuild everything. The copy is taken before anything is removed.
 alias  mz_uc='date; start_time=\$(date +%s); (cd $Base && { git -C srcs/otsdaq-demo pull --ff-only || echo "WARNING: could not pull srcs/otsdaq-demo; using its current copy of the installer"; } && cp srcs/otsdaq-demo/tools/ots-quick-lite-start.sh tmp/ots-quick-lite-start.sh && chmod 755 tmp/ots-quick-lite-start.sh && rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
@@ -359,8 +413,8 @@ echo
 echo -e "setup_ots.sh:\${LINENO} |  \t  "
 echo -e "setup_ots.sh:\${LINENO} |  \t      setup_ots.sh creates some compiling aliases for you:"
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
-echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build"
-echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build (of the repo list mz captured)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build (recaptures the repo list from srcs/)"
 echo -e "setup_ots.sh:\${LINENO} |  \t            mz_uc                          ### for ultra clean build (also rebuilds dependencies)"
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
 echo -e "setup_ots.sh:\${LINENO} |  \t  "
@@ -417,7 +471,9 @@ export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
 if [ $opt_no_build -eq 0 ]; then
     cd $Base
     export OTS_SOURCE=$Base/srcs
-    for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo; do
+    mkdir -p $Base/build
+    ots_discover_repos $Base/srcs > $Base/build/ots_repos.list    # the list mb follows
+    for pkg in $(cat $Base/build/ots_repos.list); do
         build_package $pkg $Base/srcs/$pkg $cet_cmake_flags
         installStatus=$?
         if [ $installStatus -ne 0 ]; then

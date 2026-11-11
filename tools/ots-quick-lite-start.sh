@@ -30,7 +30,7 @@ USAGE="\
    usage: `basename $0` [options]
 examples: `basename $0`
           `basename $0` --debug
-          `basename $0` --branch feature/ots-lite --repo-base /path/to/dev-srcs
+          `basename $0` --branch my-feature-branch --repo-base /path/to/dev-srcs
 --debug       perform a debug build
 --branch      Git branch to check out in srcs/ for the 3 lite repos (default: develop)
 --repo-base   Where to clone the 4 repos from (default: https://github.com/art-daq;
@@ -325,16 +325,29 @@ function ots_discover_repos()
 ## then TRACE and artdaq-database (~50s), all into local/install
 ## Catch2 is only needed because messagefacility unconditionally builds its MF_catch_main test helper (upstream FIXME).
 ########################################
+# clone_dep <dir> <url> [git clone options]: clone once; stop with a clear message if the clone
+# fails (and remove a partial directory, so a rerun retries instead of building an empty tree)
+clone_dep() {
+    local dir=$1 url=$2; shift 2
+    [ -d "$dir/.git" ] && return 0
+    rm -rf "$dir"
+    git clone -q "$@" "$url" "$dir" || { rm -rf "$dir"; echo "ERROR: git clone $* $url failed (network, or the branch/tag no longer exists)."; exit 1; }
+}
 cd $Base
 mkdir -p deps
 cd deps
-test -d Catch2 || git clone -q --depth 1 -b v3.8.1 https://github.com/catchorg/Catch2.git
-test -d cetmodules || git clone -q https://github.com/FNALssi/cetmodules.git
+clone_dep Catch2 https://github.com/catchorg/Catch2.git --depth 1 -b v3.8.1
+clone_dep cetmodules https://github.com/FNALssi/cetmodules.git
 for pkg in cetlib-except hep-concurrency cetlib fhicl-cpp messagefacility; do
-    test -d $pkg || git clone -q https://github.com/art-framework-suite/$pkg.git
+    clone_dep $pkg https://github.com/art-framework-suite/$pkg.git
 done
-test -d trace || git clone -q https://github.com/art-daq/trace.git
-test -d artdaq_database || git clone -q -b feature/ots-lite https://github.com/art-daq/artdaq-database.git artdaq_database
+clone_dep trace https://github.com/art-daq/trace.git
+# artdaq-database: the branch named by --branch if that repo has one (coordinated feature work),
+# otherwise develop, which has the lite support (feature/ots-lite was merged and deleted)
+adb_url=https://github.com/art-daq/artdaq-database.git
+if git ls-remote --exit-code --heads $adb_url "$branch" >/dev/null 2>&1; then adb_branch=$branch; else adb_branch=develop; fi
+[ -d artdaq_database/.git ] || echo "artdaq-database: using branch $adb_branch"
+clone_dep artdaq_database $adb_url -b $adb_branch
 # artdaq-database reads fhicl::extended_value::raw_value, which upstream fhicl-cpp does not have.
 # Apply the same patch the fhicl-cpp+db Spack variant uses (art-daq/artdaq-spack); idempotent on rerun.
 fhicl_patch_url=https://raw.githubusercontent.com/art-daq/artdaq-spack/cb888fa56a2584d170e7fff04c57edc0c48eaf0b/packages/fhicl-cpp/fhicl-cpp-v4_19_02.patch
@@ -355,7 +368,7 @@ plain_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_INSTALL_PREFIX=$prefix -DCMA
 if [ $build_xerces -eq 1 ]; then
     echo "xerces-c-devel not found on system; building xerces-c from source..."
     cd $Base/deps
-    test -d xerces-c || git clone -q --depth 1 -b v3.3.0 https://github.com/apache/xerces-c.git
+    clone_dep xerces-c https://github.com/apache/xerces-c.git --depth 1 -b v3.3.0
     cd $Base
     build_package xerces-c $Base/deps/xerces-c $plain_flags -Dnetwork=OFF || exit 1
 fi
@@ -363,8 +376,8 @@ fi
 if [ $build_zmq -eq 1 ]; then
     echo "cppzmq-devel not found on system; building libzmq and cppzmq from source..."
     cd $Base/deps
-    test -d libzmq || git clone -q --depth 1 -b v4.3.5 https://github.com/zeromq/libzmq.git
-    test -d cppzmq || git clone -q --depth 1 -b v4.10.0 https://github.com/zeromq/cppzmq.git
+    clone_dep libzmq https://github.com/zeromq/libzmq.git --depth 1 -b v4.3.5
+    clone_dep cppzmq https://github.com/zeromq/cppzmq.git --depth 1 -b v4.10.0
     cd $Base
     if ! [ -f /usr/include/zmq.h ] && ! [ -f $prefix/include/zmq.h ]; then
         # libzmq 4.3.5 declares cmake_minimum_required 3.0.2, which cmake 4.x refuses without this

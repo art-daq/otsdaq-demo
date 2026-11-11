@@ -153,6 +153,43 @@ gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 [ -e /usr/include/xercesc/dom/DOM.hpp ] || fallback+=("xerces-c-devel (libxerces-c-dev)")
 [ -e /usr/include/zmq.hpp ]              || fallback+=("cppzmq-devel (cppzmq-dev)")
 
+# Boost and TBB are found only through their CMake package files (BoostConfig.cmake, TBBConfig.cmake):
+# cetmodules runs find_package() under policy CMP0167 NEW, which disables CMake's FindBoost. The
+# compiler can see headers that CMake cannot (e.g. CPATH from another environment), so ask CMake
+# itself, the same way the build will. Only when the headers checks above passed.
+cmake_probe_missing=()
+if [ ${#missing_rpm[@]} -eq 0 ]; then
+    probe=$Base/tmp/prereq_probe
+    rm -rf $probe; mkdir -p $probe
+    cat > $probe/CMakeLists.txt <<'PROBE'
+cmake_minimum_required(VERSION 3.24...4.1)  # same policy range as cetmodules' find_package wrapper
+project(prereq_probe LANGUAGES CXX)
+find_package(Boost CONFIG QUIET COMPONENTS date_time filesystem program_options regex system thread unit_test_framework)
+if(NOT Boost_FOUND)
+  message(STATUS "PROBE_MISSING Boost")
+endif()
+find_package(TBB CONFIG QUIET)
+if(NOT TBB_FOUND)
+  message(STATUS "PROBE_MISSING TBB")
+endif()
+PROBE
+    cmake -S $probe -B $probe/build > $probe/probe.log 2>&1
+    grep -q "PROBE_MISSING Boost" $probe/probe.log && { cmake_probe_missing+=(Boost); missing_rpm+=(boost-devel); missing_deb+=(libboost-all-dev); }
+    grep -q "PROBE_MISSING TBB"   $probe/probe.log && { cmake_probe_missing+=(TBB);   missing_rpm+=(tbb-devel);   missing_deb+=(libtbb-dev); }
+fi
+if [ ${#cmake_probe_missing[@]} -gt 0 ]; then
+    echo
+    echo "ERROR: CMake cannot find the package files for: ${cmake_probe_missing[*]}"
+    echo "       (BoostConfig.cmake / TBBConfig.cmake, normally under /usr/lib64/cmake or /usr/lib/<triplet>/cmake)."
+    echo "       The OS development packages below provide them."
+    for h in boost/version.hpp tbb/tbb.h; do
+        where=$(echo "#include <$h>" | g++ -E -x c++ - 2>/dev/null | grep -m1 -o "/[^\"]*$h")
+        [ -n "$where" ] && echo "       The compiler finds $h at $where"
+    done
+    [ -n "$CPATH$CPLUS_INCLUDE_PATH" ] && echo "       Note: CPATH/CPLUS_INCLUDE_PATH is set; headers from another environment are not enough for CMake."
+    echo "       Details: $probe/probe.log"
+fi
+
 if [ ${#fallback[@]} -gt 0 ]; then
     echo
     echo "NOTE: not found on this system, will be built from source into $prefix (slower; install with root to skip):"

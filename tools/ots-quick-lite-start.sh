@@ -149,61 +149,133 @@ command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(g
 command -v killall  >/dev/null 2>&1 || { missing_rpm+=(psmisc);  missing_deb+=(psmisc); }
 gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 [ "${gccmajor:-0}" -ge 12 ] || { missing_rpm+=(gcc-toolset-13-gcc-c++); missing_deb+=(g++-13); }
-# these two have a from-source fallback below, so only inform
-[ -e /usr/include/xercesc/dom/DOM.hpp ] || fallback+=("xerces-c-devel (libxerces-c-dev)")
-[ -e /usr/include/zmq.hpp ]              || fallback+=("cppzmq-devel (cppzmq-dev)")
 
-# Boost and TBB are found only through their CMake package files (BoostConfig.cmake, TBBConfig.cmake):
-# cetmodules runs find_package() under policy CMP0167 NEW, which disables CMake's FindBoost. The
-# compiler can see headers that CMake cannot (e.g. CPATH from another environment), so ask CMake
-# itself, the same way the build will. Only when the headers checks above passed.
-cmake_probe_missing=()
-if [ ${#missing_rpm[@]} -eq 0 ]; then
-    probe=$Base/tmp/prereq_probe
+# Every system package the build needs, found the way the build finds it: configure a tiny probe
+# project with the same policy range as cetmodules' find_package wrapper (under which CMake's own
+# FindBoost is disabled, so BoostConfig.cmake is required). The compiler can see headers CMake
+# cannot (e.g. CPATH from another environment), so the header checks above are not enough.
+# PROBE_MISSING = must come from the OS; PROBE_FALLBACK = built from source below if absent.
+prefix=$Base/local/install
+probe=$Base/tmp/prereq_probe
+build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
+if command -v g++ >/dev/null 2>&1; then
     rm -rf $probe; mkdir -p $probe
     cat > $probe/CMakeLists.txt <<'PROBE'
-cmake_minimum_required(VERSION 3.24...4.1)  # same policy range as cetmodules' find_package wrapper
+cmake_minimum_required(VERSION 3.24...4.1)
 project(prereq_probe LANGUAGES CXX)
+macro(probe name found kind)
+  if(${found})
+    message(STATUS "PROBE_OK ${name}")
+  else()
+    message(STATUS "PROBE_${kind} ${name}")
+  endif()
+endmacro()
 find_package(Boost CONFIG QUIET COMPONENTS date_time filesystem program_options regex system thread unit_test_framework)
-if(NOT Boost_FOUND)
-  message(STATUS "PROBE_MISSING Boost")
-endif()
+probe(Boost Boost_FOUND MISSING)
 find_package(TBB CONFIG QUIET)
-if(NOT TBB_FOUND)
-  message(STATUS "PROBE_MISSING TBB")
-endif()
+probe(TBB TBB_FOUND MISSING)
+find_package(SQLite3 QUIET)
+probe(SQLite3 SQLite3_FOUND MISSING)
+find_package(OpenSSL QUIET)
+probe(OpenSSL OpenSSL_FOUND MISSING)
+find_package(CURL QUIET)
+probe(CURL CURL_FOUND MISSING)
+find_package(Threads QUIET)
+probe(Threads Threads_FOUND MISSING)
+find_package(Python 3.6 QUIET COMPONENTS Development.Embed)
+probe(Python Python_FOUND MISSING)
+find_package(XercesC 3.2 QUIET)
+probe(XercesC XercesC_FOUND FALLBACK)
+find_package(cppzmq CONFIG QUIET)
+probe(cppzmq cppzmq_FOUND FALLBACK)
 PROBE
-    cmake -S $probe -B $probe/build > $probe/probe.log 2>&1
-    grep -q "PROBE_MISSING Boost" $probe/probe.log && { cmake_probe_missing+=(Boost); missing_rpm+=(boost-devel); missing_deb+=(libboost-all-dev); }
-    grep -q "PROBE_MISSING TBB"   $probe/probe.log && { cmake_probe_missing+=(TBB);   missing_rpm+=(tbb-devel);   missing_deb+=(libtbb-dev); }
+    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix > $probe/probe.log 2>&1
+    if grep -q "PROBE_OK\|PROBE_MISSING\|PROBE_FALLBACK" $probe/probe.log; then
+        probe_ran=1
+        probe_missing=($(sed -n 's/.*PROBE_MISSING \([A-Za-z0-9]*\).*/\1/p' $probe/probe.log))
+        grep -q "PROBE_FALLBACK XercesC" $probe/probe.log && { build_xerces=1; fallback+=("xerces-c-devel (libxerces-c-dev)"); }
+        grep -q "PROBE_FALLBACK cppzmq"  $probe/probe.log && { build_zmq=1;    fallback+=("cppzmq-devel (cppzmq-dev)"); }
+    fi
 fi
-if [ ${#cmake_probe_missing[@]} -gt 0 ]; then
-    echo
-    echo "ERROR: CMake cannot find the package files for: ${cmake_probe_missing[*]}"
-    echo "       (BoostConfig.cmake / TBBConfig.cmake, normally under /usr/lib64/cmake or /usr/lib/<triplet>/cmake)."
-    echo "       The OS development packages below provide them."
-    for h in boost/version.hpp tbb/tbb.h; do
-        where=$(echo "#include <$h>" | g++ -E -x c++ - 2>/dev/null | grep -m1 -o "/[^\"]*$h")
-        [ -n "$where" ] && echo "       The compiler finds $h at $where"
-    done
-    [ -n "$CPATH$CPLUS_INCLUDE_PATH" ] && echo "       Note: CPATH/CPLUS_INCLUDE_PATH is set; headers from another environment are not enough for CMake."
-    echo "       Details: $probe/probe.log"
+if [ $probe_ran -eq 0 ]; then  # no compiler yet: decide the source builds by header, recheck on rerun
+    [ -e /usr/include/xercesc/dom/DOM.hpp ] || [ -e $prefix/include/xercesc/dom/DOM.hpp ] || { build_xerces=1; fallback+=("xerces-c-devel (libxerces-c-dev)"); }
+    [ -e /usr/include/zmq.hpp ] || [ -e $prefix/include/zmq.hpp ] || { build_zmq=1; fallback+=("cppzmq-devel (cppzmq-dev)"); }
 fi
+
+# OS package that provides each CMake package (RHEL family / Debian family)
+declare -A pkg_rpm=([Boost]=boost-devel [TBB]=tbb-devel [SQLite3]=sqlite-devel [OpenSSL]=openssl-devel
+                    [CURL]=libcurl-devel [Threads]=glibc-devel [Python]=python3-devel)
+declare -A pkg_deb=([Boost]=libboost-all-dev [TBB]=libtbb-dev [SQLite3]=libsqlite3-dev [OpenSSL]=libssl-dev
+                    [CURL]=libcurl4-openssl-dev [Threads]=libc6-dev [Python]=python3-dev)
+os_family=both
+if [ -r /etc/os-release ]; then
+    os_ids=$(. /etc/os-release; echo "$ID $ID_LIKE")
+    case " $os_ids " in
+        *" rhel "*|*" fedora "*|*" centos "*|*" almalinux "*|*" rocky "*) os_family=rpm;;
+        *" debian "*|*" ubuntu "*) os_family=deb;;
+    esac
+fi
+pkg_installed() {  # pkg_installed <rpm name> <deb name>
+    case $os_family in
+        rpm) rpm -q "$1" >/dev/null 2>&1;;
+        deb) dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
+        *)   return 1;;
+    esac
+}
+installed_but_unseen=()
+for name in "${probe_missing[@]}"; do
+    if pkg_installed ${pkg_rpm[$name]} ${pkg_deb[$name]}; then
+        installed_but_unseen+=($name)
+    else
+        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]})
+    fi
+done
+missing_rpm=($(printf '%s\n' "${missing_rpm[@]}" | awk 'NF && !seen[$0]++'))
+missing_deb=($(printf '%s\n' "${missing_deb[@]}" | awk 'NF && !seen[$0]++'))
 
 if [ ${#fallback[@]} -gt 0 ]; then
     echo
     echo "NOTE: not found on this system, will be built from source into $prefix (slower; install with root to skip):"
     printf '      %s\n' "${fallback[@]}"
 fi
+if [ ${#installed_but_unseen[@]} -gt 0 ]; then
+    echo
+    for name in "${installed_but_unseen[@]}"; do
+        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}
+        echo "ERROR: $p is installed, but CMake still cannot find $name."
+    done
+    echo "       Installing it again will not help. Usually an environment variable points CMake or the"
+    echo "       compiler at another copy. These are set in this shell:"
+    set_vars=$(env | grep -E '^(CMAKE_PREFIX_PATH|CMAKE_MODULE_PATH|Boost_DIR|BOOST_ROOT|BOOSTROOT|TBB_DIR|TBBROOT|Python_ROOT_DIR|PYTHONHOME|CPATH|CPLUS_INCLUDE_PATH|LIBRARY_PATH|SPACK_ROOT)=' | cut -c1-150)
+    if [ -n "$set_vars" ]; then
+        echo "$set_vars" | sed 's/^/         /'
+        echo "       Open a new shell without them (e.g. no Spack/UPS setup), or run:"
+        echo "         unset $(echo "$set_vars" | cut -d= -f1 | tr '\n' ' ')"
+        echo "       then rerun this script."
+    else
+        echo "         (none of the usual ones)"
+        echo "       Send $probe/probe.log to the otsdaq developers."
+    fi
+    echo "       CMake's own message is in $probe/probe.log"
+fi
 if [ ${#missing_rpm[@]} -gt 0 ]; then
     echo
-    echo "ERROR: required system packages are missing and cannot be built by this script. Install them as root, then rerun:"
+    echo "ERROR: required system packages are missing and cannot be built by this script."
+    echo "       Ask an administrator (root) to run this, then rerun the same command you used:"
     echo
-    echo "   RHEL / AlmaLinux / Rocky:  sudo dnf install ${missing_rpm[*]}"
-    echo "   Debian / Ubuntu:           sudo apt install ${missing_deb[*]}"
+    case $os_family in
+        rpm) echo "   sudo dnf install ${missing_rpm[*]}"
+             echo
+             echo "   If dnf answers \"No match for argument\", enable the CRB and EPEL repositories first:"
+             echo "   sudo dnf config-manager --set-enabled crb && sudo dnf install epel-release";;
+        deb) echo "   sudo apt install ${missing_deb[*]}";;
+        *)   echo "   RHEL / AlmaLinux / Rocky:  sudo dnf install ${missing_rpm[*]}"
+             echo "   Debian / Ubuntu:           sudo apt install ${missing_deb[*]}";;
+    esac
+    [ $probe_ran -eq 0 ] && { echo; echo "   (Some checks need a C++ compiler; rerunning after the install checks the rest.)"; }
     echo
-    exit 1
 fi
+[ ${#missing_rpm[@]} -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
 
 BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '{print $3}'` + 1))
 prefix=$Base/local/install
@@ -280,7 +352,7 @@ build_package Catch2 $Base/deps/Catch2 -DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CX
 ########################################
 plain_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_PREFIX_PATH=$prefix -DBUILD_TESTING=OFF"
 # xerces-c (XML parser used by the otsdaq configuration layer)
-if ! [ -f /usr/include/xercesc/dom/DOM.hpp ] && ! [ -f $prefix/include/xercesc/dom/DOM.hpp ]; then
+if [ $build_xerces -eq 1 ]; then
     echo "xerces-c-devel not found on system; building xerces-c from source..."
     cd $Base/deps
     test -d xerces-c || git clone -q --depth 1 -b v3.3.0 https://github.com/apache/xerces-c.git
@@ -288,7 +360,7 @@ if ! [ -f /usr/include/xercesc/dom/DOM.hpp ] && ! [ -f $prefix/include/xercesc/d
     build_package xerces-c $Base/deps/xerces-c $plain_flags -Dnetwork=OFF || exit 1
 fi
 # zeromq + cppzmq (FE -> Supervisor publish/subscribe in CoreSupervisors)
-if ! [ -f /usr/include/zmq.hpp ] && ! [ -f $prefix/include/zmq.hpp ]; then
+if [ $build_zmq -eq 1 ]; then
     echo "cppzmq-devel not found on system; building libzmq and cppzmq from source..."
     cd $Base/deps
     test -d libzmq || git clone -q --depth 1 -b v4.3.5 https://github.com/zeromq/libzmq.git

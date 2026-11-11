@@ -365,31 +365,35 @@ ots_cmake_configure()
 {
     cmake -S $Base/srcs/\$1 -B $Base/build/\$1 $cet_cmake_flags_alias
 }
-# mb: incremental build over the repo list that mz captured in \$OTS_REPO_LIST_FILE
-# (if there is no list yet, it is captured once from srcs/). A repo in the list that has
-# not been configured yet is configured first.
+# The repo list in \$OTS_REPO_LIST_FILE is established by the installer, i.e. by mz_uc;
+# mb and mz only follow it (if there is no list yet, it is captured once from srcs/).
+ots_repo_list_ready()
+{
+    if [ ! -s \$OTS_REPO_LIST_FILE ]; then
+        echo "\$1: no repo list yet; capturing it from $Base/srcs (mz_uc re-establishes it)"
+        mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
+    fi
+    echo "\$1: repos: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+}
+# mb: incremental build over the repo list. A repo in the list that has not been
+# configured yet is configured first.
 mb()
 {
     local start_time=\$(date +%s) p
     date
-    if [ ! -s \$OTS_REPO_LIST_FILE ]; then
-        echo "mb: no repo list yet; capturing it from $Base/srcs (mz recaptures it)"
-        mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
-    fi
-    echo "mb: repos: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+    ots_repo_list_ready mb
     for p in \$(cat \$OTS_REPO_LIST_FILE); do
         { [ -f $Base/build/\$p/CMakeCache.txt ] || ots_cmake_configure \$p; } && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
     done
     date
     echo "Full time: \$((\$(date +%s) - start_time)) seconds"
 }
-# mz: recapture the repo list from srcs/, then clean build every repo in it
+# mz: clean build of every repo in the repo list
 mz()
 {
     local start_time=\$(date +%s) p
     date
-    mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
-    echo "mz: repo list captured in \$OTS_REPO_LIST_FILE: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+    ots_repo_list_ready mz
     for p in \$(cat \$OTS_REPO_LIST_FILE); do
         rm -rf $Base/build/\$p; ots_cmake_configure \$p && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
     done
@@ -398,6 +402,7 @@ mz()
 }
 # ultra clean: update the installer from srcs/otsdaq-demo (git pull, so it also works with a local --repo-base),
 # then wipe build/ and local/install and rebuild everything. The copy is taken before anything is removed.
+# The rerun installer re-establishes the repo list from srcs/ (build/ots_repos.list) that mb and mz follow.
 alias  mz_uc='date; start_time=\$(date +%s); (cd $Base && { git -C srcs/otsdaq-demo pull --ff-only || echo "WARNING: could not pull srcs/otsdaq-demo; using its current copy of the installer"; } && cp srcs/otsdaq-demo/tools/ots-quick-lite-start.sh tmp/ots-quick-lite-start.sh && chmod 755 tmp/ots-quick-lite-start.sh && rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt && ./tmp/ots-quick-lite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
 
 export OTSDAQ_SETUP=1
@@ -413,9 +418,9 @@ echo
 echo -e "setup_ots.sh:\${LINENO} |  \t  "
 echo -e "setup_ots.sh:\${LINENO} |  \t      setup_ots.sh creates some compiling aliases for you:"
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
-echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build (of the repo list mz captured)"
-echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build (recaptures the repo list from srcs/)"
-echo -e "setup_ots.sh:\${LINENO} |  \t            mz_uc                          ### for ultra clean build (also rebuilds dependencies)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build (of the repo list)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build (of the repo list)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz_uc                          ### for ultra clean build (also rebuilds dependencies and re-establishes the repo list from srcs/)"
 echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
 echo -e "setup_ots.sh:\${LINENO} |  \t  "
 echo -e "setup_ots.sh:\${LINENO} |  \t  "

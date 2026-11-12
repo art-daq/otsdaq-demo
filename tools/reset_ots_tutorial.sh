@@ -44,7 +44,7 @@ echo
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Extracting parameters..."
 echo
 
-TUTORIALS_STRING="first_demo artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
+TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
 
 if [[ "$1"  == "--tutorial" && "x$2" != "x" ]]; then
 	TUTORIAL="$2"
@@ -178,7 +178,8 @@ fi
 
 
 if ! [ -e setup_ots.sh ]; then
-  kdialog --sorry "You must run this script from an OTSDAQ installation directory!"
+  echo "You must run this script from an OTSDAQ installation directory (where setup_ots.sh is)!"
+  kdialog --sorry "You must run this script from an OTSDAQ installation directory!" 2>/dev/null
   return  >/dev/null 2>&1 #return is used if script is sourced
   exit  #exit is used if script is run ./reset...
 fi
@@ -238,7 +239,7 @@ if [[ $KDIALOG_ALWAYS_YES == 0 && "x$1" == "x" ]]; then
 	kdialog --yesno "Do you want to proceed with the default tutorial, '${TUTORIAL}?'\n\n(if not, you will be prompted for tutorial name)"
 	if [[ $? -eq 1 ]]; then #no
 
-		TUTORIAL=$(kdialog --combobox "Please select the desired tutorial name:" "first_demo" "nim_plus" "iterator" "artdaq" --default "first_demo")
+		TUTORIAL=$(kdialog --combobox "Please select the desired tutorial name:" "first_demo" "first_demo_waveform" "nim_plus" "iterator" "artdaq" --default "first_demo")
 
 	fi
 

@@ -10,7 +10,8 @@
 #
 
 if ! [ -e setup_ots.sh ]; then
-  kdialog --sorry "You must run this script from an OTSDAQ installation directory!"
+  echo "You must run this script from an OTSDAQ installation directory (where setup_ots.sh is)!"
+  kdialog --sorry "You must run this script from an OTSDAQ installation directory!" 2>/dev/null
   exit 1
 fi
 

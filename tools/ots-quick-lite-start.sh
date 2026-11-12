@@ -566,7 +566,9 @@ if ! [ -d Data ] && ! [ -d databases ]; then
       || { echo "ERROR: srcs/otsdaq-demo/tools/get_tutorial_data.sh not found"; exit 1; }
     export USER_DATA="$Base/Data"
     export ARTDAQ_DATABASE_URI="filesystemdb://$Base/databases/filesystemdb/test_db"
-    ./get_tutorial_data.sh
+    # first_demo_waveform: first_demo with the Visualizer in waveform mode, which needs no ROOT
+    # (first_demo's ROOT histogram consumer cannot load in otsdaq lite, so Configure would fail)
+    ./get_tutorial_data.sh --tutorial first_demo_waveform
     rm -rf $Base/tmp/script_log; mv $Base/script_log $Base/tmp/ 2>/dev/null
     rm -f get_tutorial_data.sh
     [ -d Data ] && [ -d databases ] || { echo "ERROR: get_tutorial_data.sh did not create Data/ and databases/ (see $Base/tmp/script_log)"; exit 1; }

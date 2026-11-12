@@ -482,6 +482,12 @@ if [ $is_mac -eq 1 ]; then
             echo "macOS: $p builds with warnings not treated as errors (Apple clang is stricter than gcc)"
         fi
     done
+    # artdaq-database uses SIGSTKFLT, a Linux-only signal. Guard it (upstream fix: the same #ifdef).
+    f=artdaq_database/artdaq-database/SharedCommon/printStackTrace.cpp
+    if [ -f $f ] && grep -q SIGSTKFLT $f && ! grep -q "#ifdef SIGSTKFLT" $f; then
+        perl -0pi -e 's/(\n[ \t]*case SIGSTKFLT:\n[ \t]*name = "SIGSTKFLT";\n[ \t]*break;)/\n#ifdef SIGSTKFLT$1\n#endif/; s/(\n[ \t]*signal\(SIGSTKFLT, signalHandler\);)/\n#ifdef SIGSTKFLT$1\n#endif/' $f
+        echo "macOS: guarded Linux-only SIGSTKFLT in $f"
+    fi
 fi
 cd $Base
 : > $Base/tmp/build-timings.txt

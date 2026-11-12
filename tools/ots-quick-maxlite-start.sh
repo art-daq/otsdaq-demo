@@ -333,7 +333,8 @@ if [ $build_xerces -eq 1 ]; then
     cd $Base/deps
     clone_dep xerces-c https://github.com/apache/xerces-c.git --depth 1 -b v3.3.0
     cd $Base
-    build_package xerces-c $Base/deps/xerces-c $plain_flags -Dnetwork=OFF || exit 1
+    # gnuiconv transcoder and in-memory messages: no ICU dependency (ICU data alone is ~30 MB)
+    build_package xerces-c $Base/deps/xerces-c $plain_flags -Dnetwork=OFF -Dtranscoder=gnuiconv -Dmessage-loader=inmemory || exit 1
 fi
 build_package cetmodules $Base/deps/cetmodules $cet_cmake_flags || exit 1
 

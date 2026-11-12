@@ -496,6 +496,15 @@ if [ $is_mac -eq 1 ]; then
         sed -i '' 's/qi::long_ >>/qi::int_parser<std::int64_t>() >>/' $f
         echo "macOS: JSON integer parser in $f uses int64_t"
     fi
+    # Headers that gcc's libstdc++ pulls in indirectly but Apple's libc++ does not: <file>:<header>
+    for fh in artdaq_database/artdaq-database/StorageProviders/FileSystemDB/provider_filedb.h:list; do
+        f=${fh%%:*}; h=${fh##*:}
+        if [ -f $f ] && ! grep -q "#include <$h>" $f; then
+            # add after the first #include so include guards / pragma once stay first
+            perl -0pi -e "s/(#include [^\n]*\n)/\$1#include <$h>\n/" $f
+            echo "macOS: added #include <$h> to $f"
+        fi
+    done
 fi
 cd $Base
 : > $Base/tmp/build-timings.txt

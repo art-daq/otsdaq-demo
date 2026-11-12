@@ -10,6 +10,32 @@
 
 export OTS_LITE=1
 
+# macOS (native, Apple clang + Homebrew): everything Mac-specific below is guarded by is_mac,
+# so Linux behaviour is unchanged. macOS ships bash 3.2, which lacks associative arrays used
+# below; rerun under Homebrew's bash if it is there, otherwise say exactly how to get it.
+is_mac=0
+[ "$(uname -s)" = Darwin ] && is_mac=1
+if [ $is_mac -eq 1 ] && [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x $b ] && exec $b "$0" "$@"
+    done
+    echo "ERROR: this script needs bash 4 or newer; macOS has bash ${BASH_VERSION}."
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "       Install Homebrew (https://brew.sh) by pasting this into Terminal:"
+        echo
+        echo '   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        echo
+        echo "       then follow the 'Next steps' it prints, and run:"
+    else
+        echo "       Run:"
+    fi
+    echo
+    echo "   brew install bash"
+    echo
+    echo "       then rerun the same command you used."
+    exit 1
+fi
+
 git_status=`git status 2>/dev/null`
 git_sts=$?
 if [ $git_sts -eq 0 ];then
@@ -94,7 +120,11 @@ exec 2> >(tee "$Base/tmp/$stderr_file")
 ## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.29 (user-space download, no root)
 ## (3.29 is where CMAKE_PROJECT_TOP_LEVEL_INCLUDES accepts module names, which cet_cmake_flags relies on)
 ########################################
-if [ -f /opt/rh/gcc-toolset-13/enable ]; then
+brew_prefix=
+if [ $is_mac -eq 1 ]; then
+    # Apple clang from the Xcode Command Line Tools (g++ is clang on macOS); libraries from Homebrew
+    command -v brew >/dev/null 2>&1 && brew_prefix=$(brew --prefix)
+elif [ -f /opt/rh/gcc-toolset-13/enable ]; then
     source /opt/rh/gcc-toolset-13/enable
 else
     echo "WARNING: /opt/rh/gcc-toolset-13 not found; using system $(g++ --version | head -1). cetlib needs gcc >= 12."
@@ -105,7 +135,9 @@ if command -v cmake >/dev/null 2>&1; then
     cmake_ver=$(cmake --version | head -1 | awk '{print $3}')
     [ "$(printf '%s\n3.29\n' "$cmake_ver" | sort -V | head -1)" = "3.29" ] && cmake_ok=1
 fi
-if [ $cmake_ok -eq 0 ]; then
+if [ $cmake_ok -eq 0 ] && [ $is_mac -eq 1 ]; then
+    : # on macOS cmake comes from Homebrew; reported with the other missing packages below
+elif [ $cmake_ok -eq 0 ]; then
     if ! [ -x $Base/cmake/bin/cmake ]; then
         case "$(uname -m)" in
             x86_64)  cmake_arch=linux-x86_64;;
@@ -121,27 +153,44 @@ if [ $cmake_ok -eq 0 ]; then
     fi
     export PATH=$Base/cmake/bin:$PATH
 fi
-echo "Using $(cmake --version | head -1) and $(g++ --version | head -1)"
+if [ $cmake_ok -eq 1 ] || command -v cmake >/dev/null 2>&1; then
+    echo "Using $(cmake --version | head -1) and $(g++ --version 2>/dev/null | head -1)"
+fi
 
 ########################################
 ## Prerequisite check: things that must come from the OS (need root to install).
 ## Report everything missing at once, with the exact install commands, then stop.
 ########################################
-missing_rpm=(); missing_deb=(); fallback=()
-need() { # need <header> <rpm name> <deb name>: probe the compiler's include path (Debian multiarch
-         # keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet
-    if command -v g++ >/dev/null 2>&1; then
-        echo "#include <$1>" | g++ -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
+missing_rpm=(); missing_deb=(); missing_brew=(); fallback=(); mac_no_clt=0; mac_no_brew=0
+if [ $is_mac -eq 1 ]; then
+    # Apple clang comes with the Xcode Command Line Tools; without them g++/clang/git/make are stubs
+    xcode-select -p >/dev/null 2>&1 || mac_no_clt=1
+    [ -n "$brew_prefix" ] || mac_no_brew=1
+    [ $cmake_ok -eq 1 ] || missing_brew+=(cmake)
+fi
+have_cxx() { [ $is_mac -eq 1 ] && [ $mac_no_clt -eq 1 ] && return 1; command -v g++ >/dev/null 2>&1; }
+need() { # need <header> <rpm name> <deb name> <brew formula>: probe the compiler's include path (Debian
+         # multiarch keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet.
+         # On macOS Homebrew headers are not on the default path; keg-only formulae (openssl@3) live under opt/.
+    local inc=
+    [ -n "$brew_prefix" ] && inc="-I$brew_prefix/include -I$brew_prefix/opt/$4/include"
+    if have_cxx; then
+        echo "#include <$1>" | g++ $inc -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
     elif [ -e "/usr/include/$1" ]; then
         return
     fi
-    missing_rpm+=($2); missing_deb+=($3)
+    missing_rpm+=($2); missing_deb+=($3); missing_brew+=($4)
 }
-need boost/version.hpp            boost-devel      libboost-all-dev
-need sqlite3.h                    sqlite-devel     libsqlite3-dev
-need tbb/tbb.h                    tbb-devel        libtbb-dev
-need openssl/ssl.h                openssl-devel    libssl-dev
-need curl/curl.h                  libcurl-devel    libcurl4-openssl-dev
+need boost/version.hpp            boost-devel      libboost-all-dev        boost
+need sqlite3.h                    sqlite-devel     libsqlite3-dev          sqlite
+need tbb/tbb.h                    tbb-devel        libtbb-dev              tbb
+need openssl/ssl.h                openssl-devel    libssl-dev              openssl@3
+need curl/curl.h                  libcurl-devel    libcurl4-openssl-dev    curl
+if [ $is_mac -eq 1 ]; then
+    # Python's headers are found by the CMake probe below (Homebrew python or the CLT framework)
+    for t in git curl tar make awk sed; do command -v $t >/dev/null 2>&1 || missing_brew+=($t); done
+    command -v envsubst >/dev/null 2>&1 || missing_brew+=(gettext)   # used at run time by `ots`
+else
 ls /usr/include/python3*/Python.h >/dev/null 2>&1 || { missing_rpm+=(python3-devel); missing_deb+=(python3-dev); }
 for t in git curl wget tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
 # used at run time by the `ots` script, not by this installer
@@ -149,6 +198,7 @@ command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(g
 command -v killall  >/dev/null 2>&1 || { missing_rpm+=(psmisc);  missing_deb+=(psmisc); }
 gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 [ "${gccmajor:-0}" -ge 12 ] || { missing_rpm+=(gcc-toolset-13-gcc-c++); missing_deb+=(g++-13); }
+fi
 
 # Every system package the build needs, found the way the build finds it: configure a tiny probe
 # project with the same policy range as cetmodules' find_package wrapper (under which CMake's own
@@ -158,7 +208,10 @@ gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 prefix=$Base/local/install
 probe=$Base/tmp/prereq_probe
 build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
-if command -v g++ >/dev/null 2>&1; then
+# macOS: Homebrew's openssl@3 and sqlite are keg-only (not linked into $brew_prefix), so name them
+mac_cmake_flags=
+[ -n "$brew_prefix" ] && mac_cmake_flags="-DOPENSSL_ROOT_DIR=$brew_prefix/opt/openssl@3 -DSQLite3_ROOT=$brew_prefix/opt/sqlite"
+if have_cxx && command -v cmake >/dev/null 2>&1; then
     rm -rf $probe; mkdir -p $probe
     cat > $probe/CMakeLists.txt <<'PROBE'
 cmake_minimum_required(VERSION 3.24...4.1)
@@ -189,7 +242,7 @@ probe(XercesC XercesC_FOUND FALLBACK)
 find_package(cppzmq CONFIG QUIET)
 probe(cppzmq cppzmq_FOUND FALLBACK)
 PROBE
-    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix > $probe/probe.log 2>&1
+    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix $mac_cmake_flags > $probe/probe.log 2>&1
     if grep -q "PROBE_OK\|PROBE_MISSING\|PROBE_FALLBACK" $probe/probe.log; then
         probe_ran=1
         probe_missing=($(sed -n 's/.*PROBE_MISSING \([A-Za-z0-9]*\).*/\1/p' $probe/probe.log))
@@ -207,41 +260,55 @@ declare -A pkg_rpm=([Boost]=boost-devel [TBB]=tbb-devel [SQLite3]=sqlite-devel [
                     [CURL]=libcurl-devel [Threads]=glibc-devel [Python]=python3-devel)
 declare -A pkg_deb=([Boost]=libboost-all-dev [TBB]=libtbb-dev [SQLite3]=libsqlite3-dev [OpenSSL]=libssl-dev
                     [CURL]=libcurl4-openssl-dev [Threads]=libc6-dev [Python]=python3-dev)
+declare -A pkg_brew=([Boost]=boost [TBB]=tbb [SQLite3]=sqlite [OpenSSL]=openssl@3
+                     [CURL]=curl [Threads]= [Python]=python)
 os_family=both
-if [ -r /etc/os-release ]; then
+if [ $is_mac -eq 1 ]; then
+    os_family=brew
+elif [ -r /etc/os-release ]; then
     os_ids=$(. /etc/os-release; echo "$ID $ID_LIKE")
     case " $os_ids " in
         *" rhel "*|*" fedora "*|*" centos "*|*" almalinux "*|*" rocky "*) os_family=rpm;;
         *" debian "*|*" ubuntu "*) os_family=deb;;
     esac
 fi
-pkg_installed() {  # pkg_installed <rpm name> <deb name>
+pkg_installed() {  # pkg_installed <rpm name> <deb name> <brew formula>
     case $os_family in
-        rpm) rpm -q "$1" >/dev/null 2>&1;;
-        deb) dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
-        *)   return 1;;
+        rpm)  rpm -q "$1" >/dev/null 2>&1;;
+        deb)  dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
+        brew) [ -n "$3" ] && brew list --versions "$3" >/dev/null 2>&1;;
+        *)    return 1;;
     esac
 }
 installed_but_unseen=()
 for name in "${probe_missing[@]}"; do
-    if pkg_installed ${pkg_rpm[$name]} ${pkg_deb[$name]}; then
+    if pkg_installed "${pkg_rpm[$name]}" "${pkg_deb[$name]}" "${pkg_brew[$name]}"; then
         installed_but_unseen+=($name)
     else
-        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]})
+        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]}); missing_brew+=(${pkg_brew[$name]})
     fi
 done
 missing_rpm=($(printf '%s\n' "${missing_rpm[@]}" | awk 'NF && !seen[$0]++'))
 missing_deb=($(printf '%s\n' "${missing_deb[@]}" | awk 'NF && !seen[$0]++'))
+missing_brew=($(printf '%s\n' "${missing_brew[@]}" | awk 'NF && !seen[$0]++'))
+# the list that decides whether we can continue, for this OS
+if [ $is_mac -eq 1 ]; then n_missing=$(( ${#missing_brew[@]} + mac_no_clt + mac_no_brew )); else n_missing=${#missing_rpm[@]}; fi
 
 if [ ${#fallback[@]} -gt 0 ]; then
     echo
+    if [ $is_mac -eq 1 ]; then
+        echo "NOTE: not found on this Mac, will be built from source into $prefix (slower). To skip that, run:"
+        echo
+        echo "   brew install$(printf '%s\n' "${fallback[@]}" | grep -q xerces && echo ' xerces-c')$(printf '%s\n' "${fallback[@]}" | grep -q zmq && echo ' zeromq cppzmq')"
+    else
     echo "NOTE: not found on this system, will be built from source into $prefix (slower; install with root to skip):"
     printf '      %s\n' "${fallback[@]}"
+    fi
 fi
 if [ ${#installed_but_unseen[@]} -gt 0 ]; then
     echo
     for name in "${installed_but_unseen[@]}"; do
-        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}
+        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}; [ $os_family = brew ] && p=${pkg_brew[$name]}
         echo "ERROR: $p is installed, but CMake still cannot find $name."
     done
     echo "       Installing it again will not help. Usually an environment variable points CMake or the"
@@ -258,7 +325,35 @@ if [ ${#installed_but_unseen[@]} -gt 0 ]; then
     fi
     echo "       CMake's own message is in $probe/probe.log"
 fi
-if [ ${#missing_rpm[@]} -gt 0 ]; then
+if [ $is_mac -eq 1 ] && [ $n_missing -gt 0 ]; then
+    echo
+    echo "ERROR: required software is missing on this Mac. Run these in Terminal, in this order"
+    echo "       (no administrator account needed beyond what macOS itself asks for),"
+    echo "       then rerun the same command you used:"
+    echo
+    step=1
+    if [ $mac_no_clt -eq 1 ]; then
+        echo "   $step. Apple's command line tools (compiler, git, make); click Install in the window that opens:"
+        echo
+        echo "      xcode-select --install"
+        echo
+        step=$((step+1))
+    fi
+    if [ $mac_no_brew -eq 1 ]; then
+        echo "   $step. Homebrew (https://brew.sh); afterwards run the 'Next steps' commands it prints:"
+        echo
+        echo '      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        echo
+        step=$((step+1))
+    fi
+    if [ ${#missing_brew[@]} -gt 0 ]; then
+        echo "   $step. The libraries and tools otsdaq builds against:"
+        echo
+        echo "      brew install ${missing_brew[*]}"
+        echo
+    fi
+    [ $probe_ran -eq 0 ] && { echo "   (Some checks need the compiler and cmake; rerunning after the installs checks the rest.)"; echo; }
+elif [ ${#missing_rpm[@]} -gt 0 ]; then
     echo
     echo "ERROR: required system packages are missing and cannot be built by this script."
     echo "       Ask an administrator (root) to run this, then rerun the same command you used:"
@@ -275,9 +370,13 @@ if [ ${#missing_rpm[@]} -gt 0 ]; then
     [ $probe_ran -eq 0 ] && { echo; echo "   (Some checks need a C++ compiler; rerunning after the install checks the rest.)"; }
     echo
 fi
-[ ${#missing_rpm[@]} -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
+[ $n_missing -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
 
+if [ $is_mac -eq 1 ]; then
+    BUILD_J=$(( $(sysctl -n hw.ncpu) + 1 ))
+else
 BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '{print $3}'` + 1))
+fi
 prefix=$Base/local/install
 mkdir -p $prefix
 

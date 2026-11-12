@@ -213,6 +213,9 @@ build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
 # macOS: Homebrew's openssl@3 and sqlite are keg-only (not linked into $brew_prefix), so name them
 mac_cmake_flags=
 [ -n "$brew_prefix" ] && mac_cmake_flags="-DOPENSSL_ROOT_DIR=$brew_prefix/opt/openssl@3 -DSQLite3_ROOT=$brew_prefix/opt/sqlite"
+# cetlib's macOS branch uses CommonCrypto CC_MD5_*, deprecated since macOS 10.15; cetmodules builds
+# with -Werror, so keep that one diagnostic a warning (clang honours -Wno-error=X wherever it appears)
+[ $is_mac -eq 1 ] && mac_cmake_flags="$mac_cmake_flags -DCMAKE_CXX_FLAGS=-Wno-error=deprecated-declarations"
 if have_cxx && command -v cmake >/dev/null 2>&1; then
     rm -rf $probe; mkdir -p $probe
     cat > $probe/CMakeLists.txt <<'PROBE'

@@ -2,8 +2,9 @@
 
 `ots-quick-lite-start.sh` installs and builds a lightweight otsdaq (no Spack, no CVMFS,
 no xdaq, no artdaq) from source, using plain `cmake` + `gcc`. Four repos are
-used: `otsdaq`, `otsdaq-components`, `otsdaq-utilities`, `otsdaq-demo`. Target: minutes, not hours, on a
-small machine such as an SoC running a stock Linux distribution.
+used: `otsdaq`, `otsdaq-components`, `otsdaq-utilities`, `otsdaq-demo`. Expect 5-10 minutes, not hours
+(4 min 38 s measured on a 24-core machine), and the same script targets small machines such as an SoC
+running a stock Linux distribution.
 
 Everything the script can build itself, it does (into `local/install`). The short list
 below is what it *cannot* build and must come from your distribution's package manager.

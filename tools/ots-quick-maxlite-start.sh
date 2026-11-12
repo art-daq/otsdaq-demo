@@ -1,0 +1,580 @@
+#! /bin/bash
+# ots-quick-maxlite-start.sh
+# ots maxlite install, aimed at FPGA SoC embedded deployments: like ots lite, but
+# without TRACE, messagefacility, cetlib, fhicl-cpp, Boost, artdaq-database or ZeroMQ.
+# Only cetmodules (CMake functions, used at build time) is built from source; the
+# programs need just Xerces-C, OpenSSL libcrypto, pthread and dl at run time.
+# Configuration is kept in the plain text store (ARTDAQ_DATABASE_URI=textdb://...).
+# OTS_LITE=1 and OTS_MAXLITE=1 are exported here and in the generated setup_ots.sh so
+# that both the build and the runtime know they are in maxlite mode.
+# Derived from ots-quick-lite-start.sh
+
+export OTS_LITE=1
+export OTS_MAXLITE=1
+
+git_status=`git status 2>/dev/null`
+git_sts=$?
+if [ $git_sts -eq 0 ];then
+    echo "This script is designed to be run in a fresh install directory!"
+    exit 1
+fi
+
+starttime=`date`
+Base=$PWD
+test -d tmp || mkdir tmp
+
+echo "$0 $@" >$Base/tmp/ots-quick-maxlite-start.lastrun.sh
+test -d Data && rmdir Data
+test -d databases && rmdir databases
+
+env_opts_var=`basename $0 | sed 's/\.sh$//' | tr 'a-z-.' 'A-Z__'`_OPTS
+USAGE="\
+   usage: `basename $0` [options]
+examples: `basename $0`
+          `basename $0` --debug
+          `basename $0` --branch my-feature-branch --repo-base /path/to/dev-srcs
+--debug       perform a debug build
+--branch      Git branch to check out in srcs/ for the 3 lite repos (default: develop)
+--repo-base   Where to clone the 4 repos from (default: https://github.com/art-daq;
+              may be a local directory containing otsdaq, otsdaq-utilities, otsdaq-demo)
+--no-pull     Do not git pull repos that are already checked out
+--no-build    Only set up toolchain, deps, and sources; skip the otsdaq build
+-v            Be more verbose
+-x            set -x this script
+"
+
+# Process script arguments and options
+eval env_opts=\${$env_opts_var-} # can be args too
+
+branch=develop
+repo_base=https://github.com/art-daq
+build_type=Release
+installStatus=0
+eval "set -- $env_opts \"\$@\""
+op1chr='rest=`expr "$op" : "[^-]\(.*\)"`   && set -- "-$rest" "$@"'
+op1arg='rest=`expr "$op" : "[^-]\(.*\)"`   && set --  "$rest" "$@"'
+reqarg="$op1arg;"'test -z "${1+1}" &&echo opt -$op requires arg. &&echo "$USAGE" &&exit'
+args= do_help= opt_v=0; opt_no_pull=0; opt_no_build=0
+while [ -n "${1-}" ];do
+    if expr "x${1-}" : 'x-' >/dev/null;then
+        op=`expr "x$1" : 'x-\(.*\)'`; shift   # done with $1
+        leq=`expr "x$op" : 'x-[^=]*\(=\)'` lev=`expr "x$op" : 'x-[^=]*=\(.*\)'`
+        test -n "$leq"&&eval "set -- \"\$lev\" \"\$@\""&&op=`expr "x$op" : 'x\([^=]*\)'`
+        case "$op" in
+            \?*|h*)              eval $op1chr; do_help=1;;
+            v*)                  eval $op1chr; opt_v=`expr $opt_v + 1`;;
+            x*)                  eval $op1chr; set -x;;
+            -debug)              build_type=Debug;;
+            -branch)             eval $reqarg; branch=$1; shift;;
+            -repo-base)          eval $reqarg; repo_base=$1; shift;;
+            -no-pull)            opt_no_pull=1;;
+            -no-build)           opt_no_build=1;;
+            *)                   echo "Unknown option -$op"; do_help=1;;
+        esac
+    else
+        aa=`echo "$1" | sed -e"s/'/'\"'\"'/g"` args="$args '$aa'"; shift
+    fi
+done
+eval "set -- $args \"\$@\""; unset args aa
+# remembered so the mz_uc alias in setup_ots.sh can rerun this script with the same source options
+lite_rerun_opts="--branch $branch --repo-base $repo_base"
+
+test -n "${do_help-}" -o $# -ge 2 && echo "$USAGE" && exit
+
+# JCF, 1/16/15
+# Save all output from this script (stdout + stderr) in a file with a
+# name that looks like "quick-start.sh_Fri_Jan_16_13:58:27.script" as
+# well as all stderr in a file with a name that looks like
+# "quick-start.sh_Fri_Jan_16_13:58:27_stderr.script"
+alloutput_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1"_"$2"_"$3"_"$4".script"}' )
+stderr_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1"_"$2"_"$3"_"$4"_stderr.script"}' )
+mkdir -p $Base/tmp
+exec  > >(tee "$Base/tmp/$alloutput_file")
+exec 2> >(tee "$Base/tmp/$stderr_file")
+
+########################################
+## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.29 (user-space download, no root)
+## (3.29 is where CMAKE_PROJECT_TOP_LEVEL_INCLUDES accepts module names, which cet_cmake_flags relies on)
+########################################
+if [ -f /opt/rh/gcc-toolset-13/enable ]; then
+    source /opt/rh/gcc-toolset-13/enable
+else
+    echo "WARNING: /opt/rh/gcc-toolset-13 not found; using system $(g++ --version | head -1). cetlib needs gcc >= 12."
+fi
+
+cmake_ok=0
+if command -v cmake >/dev/null 2>&1; then
+    cmake_ver=$(cmake --version | head -1 | awk '{print $3}')
+    [ "$(printf '%s\n3.29\n' "$cmake_ver" | sort -V | head -1)" = "3.29" ] && cmake_ok=1
+fi
+if [ $cmake_ok -eq 0 ]; then
+    if ! [ -x $Base/cmake/bin/cmake ]; then
+        case "$(uname -m)" in
+            x86_64)  cmake_arch=linux-x86_64;;
+            aarch64) cmake_arch=linux-aarch64;;
+            *) echo "ERROR: cmake >= 3.29 not found and Kitware has no prebuilt cmake for $(uname -m). Install cmake >= 3.29 and rerun."; exit 1;;
+        esac
+        echo "Downloading cmake 4.4.4 ($cmake_arch) into $Base/cmake (user-space, no root)..."
+        mkdir -p $Base/cmake
+        curl -fsSL -o $Base/tmp/cmake.tar.gz https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-$cmake_arch.tar.gz \
+          && tar xzf $Base/tmp/cmake.tar.gz -C $Base/cmake --strip-components=1 \
+          || { echo "ERROR: cmake download/extract failed. Install cmake >= 3.29 and rerun."; exit 1; }
+        rm -f $Base/tmp/cmake.tar.gz
+    fi
+    export PATH=$Base/cmake/bin:$PATH
+fi
+echo "Using $(cmake --version | head -1) and $(g++ --version | head -1)"
+
+########################################
+## Prerequisite check: things that must come from the OS (need root to install).
+## Report everything missing at once, with the exact install commands, then stop.
+########################################
+missing_rpm=(); missing_deb=(); fallback=()
+need() { # need <header> <rpm name> <deb name>: probe the compiler's include path (Debian multiarch
+         # keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet
+    if command -v g++ >/dev/null 2>&1; then
+        echo "#include <$1>" | g++ -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
+    elif [ -e "/usr/include/$1" ]; then
+        return
+    fi
+    missing_rpm+=($2); missing_deb+=($3)
+}
+need openssl/sha.h                openssl-devel    libssl-dev
+for t in git curl wget tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
+# used at run time by the `ots` script, not by this installer
+command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(gettext-base); }
+command -v killall  >/dev/null 2>&1 || { missing_rpm+=(psmisc);  missing_deb+=(psmisc); }
+gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
+[ "${gccmajor:-0}" -ge 12 ] || { missing_rpm+=(gcc-toolset-13-gcc-c++); missing_deb+=(g++-13); }
+
+# Every system package the build needs, found the way the build finds it: configure a tiny probe
+# project with the same policy range as cetmodules' find_package wrapper (under which CMake's own
+# FindBoost is disabled, so BoostConfig.cmake is required). The compiler can see headers CMake
+# cannot (e.g. CPATH from another environment), so the header checks above are not enough.
+# PROBE_MISSING = must come from the OS; PROBE_FALLBACK = built from source below if absent.
+prefix=$Base/local/install
+probe=$Base/tmp/prereq_probe
+build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
+if command -v g++ >/dev/null 2>&1; then
+    rm -rf $probe; mkdir -p $probe
+    cat > $probe/CMakeLists.txt <<'PROBE'
+cmake_minimum_required(VERSION 3.24...4.1)
+project(prereq_probe LANGUAGES CXX)
+macro(probe name found kind)
+  if(${found})
+    message(STATUS "PROBE_OK ${name}")
+  else()
+    message(STATUS "PROBE_${kind} ${name}")
+  endif()
+endmacro()
+find_package(OpenSSL QUIET COMPONENTS Crypto)
+probe(OpenSSL OpenSSL_FOUND MISSING)
+find_package(Threads QUIET)
+probe(Threads Threads_FOUND MISSING)
+find_package(XercesC 3.2 QUIET)
+probe(XercesC XercesC_FOUND FALLBACK)
+PROBE
+    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix > $probe/probe.log 2>&1
+    if grep -q "PROBE_OK\|PROBE_MISSING\|PROBE_FALLBACK" $probe/probe.log; then
+        probe_ran=1
+        probe_missing=($(sed -n 's/.*PROBE_MISSING \([A-Za-z0-9]*\).*/\1/p' $probe/probe.log))
+        grep -q "PROBE_FALLBACK XercesC" $probe/probe.log && { build_xerces=1; fallback+=("xerces-c-devel (libxerces-c-dev)"); }
+    fi
+fi
+if [ $probe_ran -eq 0 ]; then  # no compiler yet: decide the source builds by header, recheck on rerun
+    [ -e /usr/include/xercesc/dom/DOM.hpp ] || [ -e $prefix/include/xercesc/dom/DOM.hpp ] || { build_xerces=1; fallback+=("xerces-c-devel (libxerces-c-dev)"); }
+fi
+
+# OS package that provides each CMake package (RHEL family / Debian family)
+declare -A pkg_rpm=([Boost]=boost-devel [TBB]=tbb-devel [SQLite3]=sqlite-devel [OpenSSL]=openssl-devel
+                    [CURL]=libcurl-devel [Threads]=glibc-devel [Python]=python3-devel)
+declare -A pkg_deb=([Boost]=libboost-all-dev [TBB]=libtbb-dev [SQLite3]=libsqlite3-dev [OpenSSL]=libssl-dev
+                    [CURL]=libcurl4-openssl-dev [Threads]=libc6-dev [Python]=python3-dev)
+os_family=both
+if [ -r /etc/os-release ]; then
+    os_ids=$(. /etc/os-release; echo "$ID $ID_LIKE")
+    case " $os_ids " in
+        *" rhel "*|*" fedora "*|*" centos "*|*" almalinux "*|*" rocky "*) os_family=rpm;;
+        *" debian "*|*" ubuntu "*) os_family=deb;;
+    esac
+fi
+pkg_installed() {  # pkg_installed <rpm name> <deb name>
+    case $os_family in
+        rpm) rpm -q "$1" >/dev/null 2>&1;;
+        deb) dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
+        *)   return 1;;
+    esac
+}
+installed_but_unseen=()
+for name in "${probe_missing[@]}"; do
+    if pkg_installed ${pkg_rpm[$name]} ${pkg_deb[$name]}; then
+        installed_but_unseen+=($name)
+    else
+        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]})
+    fi
+done
+missing_rpm=($(printf '%s\n' "${missing_rpm[@]}" | awk 'NF && !seen[$0]++'))
+missing_deb=($(printf '%s\n' "${missing_deb[@]}" | awk 'NF && !seen[$0]++'))
+
+if [ ${#fallback[@]} -gt 0 ]; then
+    echo
+    echo "NOTE: not found on this system, will be built from source into $prefix (slower; install with root to skip):"
+    printf '      %s\n' "${fallback[@]}"
+fi
+if [ ${#installed_but_unseen[@]} -gt 0 ]; then
+    echo
+    for name in "${installed_but_unseen[@]}"; do
+        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}
+        echo "ERROR: $p is installed, but CMake still cannot find $name."
+    done
+    echo "       Installing it again will not help. Usually an environment variable points CMake or the"
+    echo "       compiler at another copy. These are set in this shell:"
+    set_vars=$(env | grep -E '^(CMAKE_PREFIX_PATH|CMAKE_MODULE_PATH|Boost_DIR|BOOST_ROOT|BOOSTROOT|TBB_DIR|TBBROOT|Python_ROOT_DIR|PYTHONHOME|CPATH|CPLUS_INCLUDE_PATH|LIBRARY_PATH|SPACK_ROOT)=' | cut -c1-150)
+    if [ -n "$set_vars" ]; then
+        echo "$set_vars" | sed 's/^/         /'
+        echo "       Open a new shell without them (e.g. no Spack/UPS setup), or run:"
+        echo "         unset $(echo "$set_vars" | cut -d= -f1 | tr '\n' ' ')"
+        echo "       then rerun this script."
+    else
+        echo "         (none of the usual ones)"
+        echo "       Send $probe/probe.log to the otsdaq developers."
+    fi
+    echo "       CMake's own message is in $probe/probe.log"
+fi
+if [ ${#missing_rpm[@]} -gt 0 ]; then
+    echo
+    echo "ERROR: required system packages are missing and cannot be built by this script."
+    echo "       Ask an administrator (root) to run this, then rerun the same command you used:"
+    echo
+    case $os_family in
+        rpm) echo "   sudo dnf install ${missing_rpm[*]}"
+             echo
+             echo "   If dnf answers \"No match for argument\", enable the CRB and EPEL repositories first:"
+             echo "   sudo dnf config-manager --set-enabled crb && sudo dnf install epel-release";;
+        deb) echo "   sudo apt install ${missing_deb[*]}";;
+        *)   echo "   RHEL / AlmaLinux / Rocky:  sudo dnf install ${missing_rpm[*]}"
+             echo "   Debian / Ubuntu:           sudo apt install ${missing_deb[*]}";;
+    esac
+    [ $probe_ran -eq 0 ] && { echo; echo "   (Some checks need a C++ compiler; rerunning after the install checks the rest.)"; }
+    echo
+fi
+[ ${#missing_rpm[@]} -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
+
+BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '{print $3}'` + 1))
+prefix=$Base/local/install
+mkdir -p $prefix
+
+# Common cmake flags for cetmodules-based projects. cetmodules 4.x requires CetProvideDependency,
+# and no longer auto-loads cet_make_library/cet_cmake_config (CetMake, CetCMakeConfig); projects
+# written for cetmodules 3 (TRACE, most otsdaq subdirs) rely on them being preloaded.
+cet_cmake_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_PREFIX_PATH=$prefix -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES:STRING=CetProvideDependency;CetMake;CetCMakeConfig -DBUILD_TESTING=OFF"
+# same flags for use inside the generated setup_ots.sh aliases, where a bare ';' would end the command
+cet_cmake_flags_alias="${cet_cmake_flags//;/\\;}"
+
+function build_package()
+{
+    # build_package <name> <srcdir> [cmake flags...]
+    name=$1; src=$2; shift 2
+    s=$(date +%s)
+    echo "########## building $name  $(date)"
+    cmake -S $src -B $Base/build/$name "$@" \
+      && cmake --build $Base/build/$name -j $BUILD_J \
+      && cmake --install $Base/build/$name
+    rc=$?
+    printf "%-20s rc=%d  %4ds\n" $name $rc $(( $(date +%s) - s )) | tee -a $Base/tmp/build-timings.txt
+    return $rc
+}
+
+function ots_discover_repos()
+{
+    # ots_discover_repos <srcs dir>: the otsdaq repos to build, one per line, in build order.
+    # otsdaq and the three standard repos come first (in that order); any other
+    # srcs/otsdaq-*/ directory with a CMakeLists.txt (e.g. an experiment repo such as
+    # otsdaq-td-ims-asic) follows, alphabetically, so it builds after otsdaq.
+    local srcs=$1 known="otsdaq otsdaq-components otsdaq-utilities otsdaq-demo" r d
+    for r in $known; do
+        [ -f $srcs/$r/CMakeLists.txt ] && echo $r
+    done
+    for d in $srcs/otsdaq-*/; do
+        r=$(basename $d)
+        case " $known " in *" $r "*) continue;; esac
+        [ -f $d/CMakeLists.txt ] && echo $r
+    done
+    return 0
+}
+
+########################################
+## maxlite: only cetmodules (CMake functions, build host only) from source into local/install;
+## no cet libraries, TRACE, artdaq-database, ZeroMQ or Catch2
+########################################
+# clone_dep <dir> <url> [git clone options]: clone once; stop with a clear message if the clone
+# fails (and remove a partial directory, so a rerun retries instead of building an empty tree)
+clone_dep() {
+    local dir=$1 url=$2; shift 2
+    [ -d "$dir/.git" ] && return 0
+    rm -rf "$dir"
+    git clone -q "$@" "$url" "$dir" || { rm -rf "$dir"; echo "ERROR: git clone $* $url failed (network, or the branch/tag no longer exists)."; exit 1; }
+}
+cd $Base
+mkdir -p deps
+cd deps
+clone_dep cetmodules https://github.com/FNALssi/cetmodules.git
+cd $Base
+: > $Base/tmp/build-timings.txt
+
+########################################
+## System libraries otsdaq needs: use the OS copy if present, otherwise build from source (no root needed).
+## OpenSSL (libcrypto) is expected from the OS.
+########################################
+plain_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_PREFIX_PATH=$prefix -DBUILD_TESTING=OFF"
+# xerces-c (XML parser used by the otsdaq configuration layer)
+if [ $build_xerces -eq 1 ]; then
+    echo "xerces-c-devel not found on system; building xerces-c from source..."
+    cd $Base/deps
+    clone_dep xerces-c https://github.com/apache/xerces-c.git --depth 1 -b v3.3.0
+    cd $Base
+    build_package xerces-c $Base/deps/xerces-c $plain_flags -Dnetwork=OFF || exit 1
+fi
+build_package cetmodules $Base/deps/cetmodules $cet_cmake_flags || exit 1
+
+########################################
+## Checkout the 3 lite repos (read-only; --repo-base may be a local directory while iterating)
+########################################
+function checkout_package()
+{
+    pkg=$1
+    # any failure aborts: otherwise the build would silently use whatever branch is checked out
+    if ! [ -d $pkg ]; then
+        git clone $repo_base/$pkg          || { echo "ERROR: git clone $repo_base/$pkg failed"; exit 1; }
+        git -C $pkg checkout $branch       || { echo "ERROR: branch '$branch' not found in $pkg"; exit 1; }
+    elif [ $opt_no_pull -eq 0 ]; then
+        git -C $pkg checkout $branch       || { echo "ERROR: branch '$branch' not found in $pkg"; exit 1; }
+        git -C $pkg pull                   || { echo "ERROR: git pull failed in $pkg"; exit 1; }
+    fi
+}
+
+cd $Base
+test -L srcs && rm srcs
+mkdir -p srcs
+cd srcs
+for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo;do
+    checkout_package $pkg
+done
+cd $Base
+
+    cat >setup_ots.sh <<-EOF
+echo # This script is intended to be sourced.
+
+SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+otsdir=\$SCRIPT_DIR
+
+sh -c "[ \`ps \$\$ | grep bash | wc -l\` -gt 0 ] || { echo 'Please switch to the bash shell before running ots.'; exit; }" || exit
+
+export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+export OTS_LITE=1
+export OTS_MAXLITE=1
+[ -f /opt/rh/gcc-toolset-13/enable ] && source /opt/rh/gcc-toolset-13/enable
+[ -x $Base/cmake/bin/cmake ] && export PATH=$Base/cmake/bin:\$PATH
+export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+
+#handle using ots-develop local install area
+if [ -d \$SCRIPT_DIR/local/install ]; then
+    export PATH=\$SCRIPT_DIR/local/install/bin:\$PATH
+    export LD_LIBRARY_PATH=\$SCRIPT_DIR/local/install/lib:\$SCRIPT_DIR/local/install/lib64:\$LD_LIBRARY_PATH
+    export CET_PLUGIN_PATH=\$SCRIPT_DIR/local/install/lib:\$CET_PLUGIN_PATH
+    export ROOT_INCLUDE_PATH=\$SCRIPT_DIR/local/install/include:\$ROOT_INCLUDE_PATH
+
+        export OTSDAQ_DIR=\${OTSDAQ_DIR:-\$SCRIPT_DIR/local/install} #only set if not set by spack, e.g. needed by UpdateOTS.sh
+        export OTSDAQ_LIB=\${OTSDAQ_LIB:-\$SCRIPT_DIR/local/install/lib} #only set if not set by spack, e.g. needed by otsConfiguration_Wizard_CMake.xml, otsConfiguration_MacroMaker_CMake.xml
+        export OTSDAQ_UTILITIES_LIB=\${OTSDAQ_UTILITIES_LIB:-\$SCRIPT_DIR/local/install/lib} #only set if not set by spack, needed by otsConfiguration_Wizard_CMake.xml, otsConfiguration_MacroMaker_CMake.xml
+        export OTSDAQ_UTILITIES_DIR=\${OTSDAQ_UTILITIES_DIR:-\$SCRIPT_DIR/local/install}
+
+        # in ots-develop mode, set WebPath because OTSDAQ_UTILITIES_DIR is not setup
+        if [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI ]; then
+                export OTSDAQ_WEB_PATH=\$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI
+        else
+                export OTSDAQ_WEB_PATH=\$(readlink -f "\$OTSDAQ_UTILITIES_LIB/../WebGUI")
+        fi
+        export OTS_FILE_PARSE_PATTERN="/srcs/" #will be used to parse filename (i.e. for TRACE)
+
+        export FHICL_FILE_PATH=\$SCRIPT_DIR/local/install/fcl:\$FHICL_FILE_PATH
+        export MU2E_SEARCH_PATH=\$SCRIPT_DIR/local/install/share:\$MU2E_SEARCH_PATH
+
+        export  ARTDAQ_DAQINTERFACE_DIR=\${ARTDAQ_DAQINTERFACE_DIR:-\$SCRIPT_DIR/local/install} #only set if not set by spack, e.g. needed by UpdateOTS.sh
+
+fi
+export ARTDAQ_DAQINTERFACE_VERSION="SPACK"
+export ARTDAQ_PARTITION=1
+
+export OTS_MAIN_PORT=2015
+
+export USER_DATA="$Base/Data"
+export ARTDAQ_DATABASE_URI="textdb://$Base/databases/textdb/test_db"
+export OTSDAQ_DATA="$Base/Data/OutputData"
+export OTS_SOURCE=$Base/srcs
+
+echo -e "setup_ots.sh:\${LINENO} |  \t  Now your user data path is USER_DATA \t\t = \${USER_DATA}"
+echo -e "setup_ots.sh:\${LINENO} |  \t  Now your database path is ARTDAQ_DATABASE_URI \t = \${ARTDAQ_DATABASE_URI}"
+echo -e "setup_ots.sh:\${LINENO} |  \t  Now your output data path is OTSDAQ_DATA \t = \${OTSDAQ_DATA}"
+echo
+
+alias  kx='ots -k'
+unalias mb mz 2>/dev/null   # earlier versions of this file defined mb/mz as aliases, which would shadow the functions
+OTS_REPO_LIST_FILE=$Base/build/ots_repos.list
+$(declare -f ots_discover_repos)
+ots_cmake_configure()
+{
+    cmake -S $Base/srcs/\$1 -B $Base/build/\$1 $cet_cmake_flags_alias
+}
+# The repo list in \$OTS_REPO_LIST_FILE is established by the installer, i.e. by mz_uc;
+# mb and mz only follow it (if there is no list yet, it is captured once from srcs/).
+ots_repo_list_ready()
+{
+    if [ ! -s \$OTS_REPO_LIST_FILE ]; then
+        echo "\$1: no repo list yet; capturing it from $Base/srcs (mz_uc re-establishes it)"
+        mkdir -p $Base/build && ots_discover_repos $Base/srcs > \$OTS_REPO_LIST_FILE
+    fi
+    echo "\$1: repos: \$(tr '\n' ' ' < \$OTS_REPO_LIST_FILE)"
+}
+# mb: incremental build over the repo list. A repo in the list that has not been
+# configured yet is configured first.
+mb()
+{
+    local start_time=\$(date +%s) p
+    date
+    ots_repo_list_ready mb
+    for p in \$(cat \$OTS_REPO_LIST_FILE); do
+        { [ -f $Base/build/\$p/CMakeCache.txt ] || ots_cmake_configure \$p; } && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
+    done
+    date
+    echo "Full time: \$((\$(date +%s) - start_time)) seconds"
+}
+# mz: clean build of every repo in the repo list
+mz()
+{
+    local start_time=\$(date +%s) p
+    date
+    ots_repo_list_ready mz
+    for p in \$(cat \$OTS_REPO_LIST_FILE); do
+        rm -rf $Base/build/\$p; ots_cmake_configure \$p && cmake --build $Base/build/\$p -j\$BUILD_J && cmake --install $Base/build/\$p || break
+    done
+    date
+    echo "Full time: \$((\$(date +%s) - start_time)) seconds"
+}
+# ultra clean: update the installer from srcs/otsdaq-demo (git pull, so it also works with a local --repo-base),
+# then wipe build/ and local/install and rebuild everything. The copy is taken before anything is removed.
+# The rerun installer re-establishes the repo list from srcs/ (build/ots_repos.list) that mb and mz follow.
+alias  mz_uc='date; start_time=\$(date +%s); (cd $Base && { git -C srcs/otsdaq-demo pull --ff-only || echo "WARNING: could not pull srcs/otsdaq-demo; using its current copy of the installer"; } && cp srcs/otsdaq-demo/tools/ots-quick-maxlite-start.sh tmp/ots-quick-maxlite-start.sh && chmod 755 tmp/ots-quick-maxlite-start.sh && rm -rf $Base/build $Base/local/install $Base/tmp/build-timings.txt && ./tmp/ots-quick-maxlite-start.sh --no-pull $lite_rerun_opts); end_time=\$(date +%s); date; echo "Full time: \$((end_time - start_time)) seconds"'
+
+export OTSDAQ_SETUP=1
+
+echo
+echo -e "setup_ots.sh:\${LINENO} |  \t  Now use 'ots --wiz' to configure otsdaq"
+echo -e "setup_ots.sh:\${LINENO} |  \t   	Then use 'ots' to start otsdaq"
+echo -e "setup_ots.sh:\${LINENO} |  \t   	Or use 'ots --help' for more options"
+echo
+echo -e "setup_ots.sh:\${LINENO} |  \t      use 'kx' to kill otsdaq processes"
+echo
+
+echo -e "setup_ots.sh:\${LINENO} |  \t  "
+echo -e "setup_ots.sh:\${LINENO} |  \t      setup_ots.sh creates some compiling aliases for you:"
+echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mb                             ### for incremental build (of the repo list)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz                             ### for clean build (of the repo list)"
+echo -e "setup_ots.sh:\${LINENO} |  \t            mz_uc                          ### for ultra clean build (also rebuilds dependencies and re-establishes the repo list from srcs/)"
+echo -e "setup_ots.sh:\${LINENO} |  \t     ---------------"
+echo -e "setup_ots.sh:\${LINENO} |  \t  "
+echo -e "setup_ots.sh:\${LINENO} |  \t  "
+
+EOF
+#
+
+
+########################################
+########################################
+## Setup USER_DATA and databases
+########################################
+########################################
+cd $Base
+
+# Install the tutorial Data and databases on first install only; rebuilds (mz_uc) leave them alone.
+# The helper scripts are taken from the local checkout (no unauthenticated downloads).
+# get_tutorial_data.sh backs up and replaces BOTH areas, so it is only run when both are absent.
+if ! [ -d Data ] && ! [ -d databases ]; then
+    # get_tutorial_data.sh sources ./setup_ots.sh and only knows the artdaq-database layout,
+    # so run it from tmp/ with a two-line setup_ots.sh pointing at databases/filesystemdb.
+    # (maxlite reads databases/textdb; the tutorial database is not converted yet.)
+    mkdir -p $Base/tmp/tutorial_data && cd $Base/tmp/tutorial_data
+    cp $Base/srcs/otsdaq-demo/tools/get_tutorial_data.sh . && chmod 755 get_tutorial_data.sh \
+      || { echo "ERROR: srcs/otsdaq-demo/tools/get_tutorial_data.sh not found"; exit 1; }
+    printf 'export USER_DATA="%s"\nexport ARTDAQ_DATABASE_URI="%s"\n' \
+        "$Base/Data" "filesystemdb://$Base/databases/filesystemdb/test_db" > setup_ots.sh
+    ./get_tutorial_data.sh
+    rm -rf $Base/tmp/script_log; mv script_log $Base/tmp/ 2>/dev/null
+    cd $Base && rm -rf $Base/tmp/tutorial_data
+    [ -d Data ] && [ -d databases ] || { echo "ERROR: get_tutorial_data.sh did not create Data/ and databases/ (see $Base/tmp/script_log)"; exit 1; }
+    mkdir -p $Base/databases/textdb/test_db
+
+    cp $Base/srcs/otsdaq-demo/tools/reset_ots_tutorial.sh . && chmod 755 reset_ots_tutorial.sh
+elif ! [ -d Data ] || ! [ -d databases ]; then
+    echo "ERROR: only one of Data/ and databases/ exists in $Base; refusing to guess."
+    echo "       Either restore the missing one from a Data.bak*/databases.bak* copy, or move the other one"
+    echo "       aside too and rerun to install a fresh tutorial set (both are backed up by get_tutorial_data.sh)."
+    exit 1
+else
+    echo -e "ots-quick-maxlite-start.sh [${LINENO}]  \t Data/ and databases/ already present, keeping them"
+fi
+
+export USER_DATA="$Base/Data"
+export ARTDAQ_DATABASE_URI="textdb://$Base/databases/textdb/test_db"
+
+
+########################################
+########################################
+## END Setup USER_DATA and databases
+########################################
+########################################
+
+
+########################################
+## Build otsdaq, otsdaq-utilities, otsdaq-demo against local/install (OTS_LITE and OTS_MAXLITE are exported at the top)
+########################################
+if [ $opt_no_build -eq 0 ]; then
+    cd $Base
+    export OTS_SOURCE=$Base/srcs
+    mkdir -p $Base/build
+    ots_discover_repos $Base/srcs > $Base/build/ots_repos.list    # the list mb follows
+    for pkg in $(cat $Base/build/ots_repos.list); do
+        build_package $pkg $Base/srcs/$pkg $cet_cmake_flags
+        installStatus=$?
+        if [ $installStatus -ne 0 ]; then
+            echo "ERROR: build of $pkg failed (full log in $Base/tmp/)"
+            break
+        fi
+    done
+fi
+
+echo
+echo "=== build timings:"
+cat $Base/tmp/build-timings.txt
+echo
+
+if [ $installStatus -eq 0 ]; then
+    echo "otsdaq maxlite has been installed correctly. Use 'source setup_ots.sh' to setup your otsdaq software."
+    echo
+    echo "In the future, when you open a new terminal, just use 'source setup_ots.sh' to setup your ots installation."
+    echo
+    echo "For tutorials and additional resources, go to https://otsdaq.fnal.gov"
+    echo
+else
+    echo "BUILD ERROR!!! SOMETHING IS VERY WRONG!!!"
+    echo
+    echo
+fi
+
+endtime=`date`
+
+echo "Build start time: $starttime"
+echo "Build end time:   $endtime"
+
+exit $installStatus

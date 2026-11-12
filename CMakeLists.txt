@@ -76,6 +76,9 @@ find_package(otsdaq 2.06.06 REQUIRED)
 find_package(otsdaq-components 2.06.06 REQUIRED)
 if(DEFINED ENV{OTS_LITE})
 	message("!!! OTS_LITE build: skipping artdaq and ROOT !!!")
+	if(DEFINED ENV{OTS_MAXLITE})
+		add_definitions(-DOTS_LITE -DOTS_MAXLITE) # no TRACE/messagefacility/cetlib/fhiclcpp/Boost
+	endif()
 endif()
 
 # Code

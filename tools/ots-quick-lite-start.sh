@@ -213,9 +213,6 @@ build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
 # macOS: Homebrew's openssl@3 and sqlite are keg-only (not linked into $brew_prefix), so name them
 mac_cmake_flags=
 [ -n "$brew_prefix" ] && mac_cmake_flags="-DOPENSSL_ROOT_DIR=$brew_prefix/opt/openssl@3 -DSQLite3_ROOT=$brew_prefix/opt/sqlite"
-# cetlib's macOS branch uses CommonCrypto CC_MD5_*, deprecated since macOS 10.15; cetmodules builds
-# with -Werror, so keep that one diagnostic a warning (clang honours -Wno-error=X wherever it appears)
-[ $is_mac -eq 1 ] && mac_cmake_flags="$mac_cmake_flags -DCMAKE_CXX_FLAGS=-Wno-error=deprecated-declarations"
 if have_cxx && command -v cmake >/dev/null 2>&1; then
     rm -rf $probe; mkdir -p $probe
     cat > $probe/CMakeLists.txt <<'PROBE'
@@ -476,6 +473,13 @@ if [ $is_mac -eq 1 ]; then
             mv $p/VERSION $p/VERSION.txt
             sed -i '' 's|cet_set_version_from_file(|cet_set_version_from_file(VERSION_FILE ${PROJECT_SOURCE_DIR}/VERSION.txt |' $p/CMakeLists.txt
             echo "macOS: renamed $p/VERSION to VERSION.txt (case-insensitive clash with <version>)"
+        fi
+        # Apple clang warns about things gcc does not (unused const variables, deprecated CommonCrypto
+        # MD5 in cetlib, ...). These packages hard-code WERROR in cet_set_compiler_flags, which adds
+        # -Werror after any flags passed in, so drop the WERROR keyword; warnings are still printed.
+        if grep -q "cet_set_compiler_flags" $p/CMakeLists.txt 2>/dev/null && grep -q "[[:<:]]WERROR[[:>:]]" $p/CMakeLists.txt; then
+            sed -i '' 's/[[:<:]]WERROR[[:>:]]//g' $p/CMakeLists.txt
+            echo "macOS: $p builds with warnings not treated as errors (Apple clang is stricter than gcc)"
         fi
     done
 fi

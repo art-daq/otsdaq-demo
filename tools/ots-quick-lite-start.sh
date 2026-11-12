@@ -115,6 +115,8 @@ stderr_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1
 mkdir -p $Base/tmp
 exec  > >(tee "$Base/tmp/$alloutput_file")
 exec 2> >(tee "$Base/tmp/$stderr_file")
+# fixed name for the latest run's full output, so it can be found without knowing the date
+ln -sf "$alloutput_file" "$Base/tmp/install.log"
 
 ########################################
 ## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.29 (user-space download, no root)
@@ -371,6 +373,7 @@ elif [ ${#missing_rpm[@]} -gt 0 ]; then
     echo
 fi
 [ $n_missing -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
+[ $is_mac -eq 1 ] && echo "Prerequisites: all found (Xcode Command Line Tools, Homebrew $brew_prefix, cmake, boost, tbb, sqlite, openssl@3, curl, python)."
 
 if [ $is_mac -eq 1 ]; then
     BUILD_J=$(( $(sysctl -n hw.ncpu) + 1 ))
@@ -386,6 +389,10 @@ mkdir -p $prefix
 cet_cmake_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_PREFIX_PATH=$prefix -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES:STRING=CetProvideDependency;CetMake;CetCMakeConfig -DBUILD_TESTING=OFF"
 # same flags for use inside the generated setup_ots.sh aliases, where a bare ';' would end the command
 cet_cmake_flags_alias="${cet_cmake_flags//;/\\;}"
+if [ $is_mac -eq 1 ]; then  # keg-only Homebrew packages (see the prerequisite probe)
+    cet_cmake_flags="$cet_cmake_flags $mac_cmake_flags"
+    cet_cmake_flags_alias="$cet_cmake_flags_alias $mac_cmake_flags"
+fi
 
 function build_package()
 {
@@ -453,6 +460,21 @@ fhicl_patch_url=https://raw.githubusercontent.com/art-daq/artdaq-spack/cb888fa56
 if ! grep -q raw_value fhicl-cpp/fhiclcpp/extended_value.h; then
     curl -fsSL $fhicl_patch_url -o fhicl-cpp-db.patch || { echo "ERROR: cannot download fhicl-cpp patch $fhicl_patch_url"; exit 1; }
     git -C fhicl-cpp apply $Base/deps/fhicl-cpp-db.patch || { echo "ERROR: fhicl-cpp patch did not apply (fhicl-cpp develop moved?)"; exit 1; }
+fi
+# macOS: the default filesystem ignores case, so a source-root VERSION file is found by libc++'s own
+# `#include <version>` whenever that root is on the include path (cetlib), and the build fails with
+# "expected unqualified-id" on the version string. Rename it and tell cet_set_version_from_file. Idempotent.
+if [ $is_mac -eq 1 ]; then
+    for p in */; do
+        p=${p%/}
+        [ "$p" = cetmodules ] && continue   # CMake-only, no C++ include path
+        if [ -f $p/VERSION ] && grep -q "cet_set_version_from_file(" $p/CMakeLists.txt 2>/dev/null \
+           && ! grep -q "VERSION_FILE.*VERSION.txt" $p/CMakeLists.txt; then
+            mv $p/VERSION $p/VERSION.txt
+            sed -i '' 's|cet_set_version_from_file(|cet_set_version_from_file(VERSION_FILE ${PROJECT_SOURCE_DIR}/VERSION.txt |' $p/CMakeLists.txt
+            echo "macOS: renamed $p/VERSION to VERSION.txt (case-insensitive clash with <version>)"
+        fi
+    done
 fi
 cd $Base
 : > $Base/tmp/build-timings.txt

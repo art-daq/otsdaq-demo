@@ -16,6 +16,7 @@
 ///
 ///
 #include <arpa/inet.h>
+#include <cinttypes>  // PRIX64: uint64_t is not long on 32-bit ARM
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -124,7 +125,8 @@ unsigned int fillBurstPayload(char*     buff,
 {
 	if(data_mode == 0)
 	{
-		memcpy((void*)&buff[txOffset], (void*)&count, 8);
+		uint64_t count64 = (uint64_t)count;  // 8 bytes on the wire; time_t is 4 bytes on 32-bit ARM
+		memcpy((void*)&buff[txOffset], (void*)&count64, 8);
 		return txOffset + 8;
 	}
 
@@ -443,7 +445,7 @@ int main(int argc, char** argv)
 
 					__COUT__ << std::hex << ":::"
 					         << "Read address: 0x" << std::hex << addr;
-					__PRINTF__(" 0x%16.16lX \n", addr);
+					__PRINTF__(" 0x%16.16" PRIX64 " \n", addr);
 
 					// setup response packet based on address
 					buff[handlerIndex + 0] = 0;  // read type
@@ -590,7 +592,7 @@ int main(int argc, char** argv)
 					memcpy((void*)&addr, (void*)&buff[handlerIndex + RX_ADDR_OFFSET], 8);
 					__COUT__ << std::hex << ":::"
 					         << "Write address: 0x" << std::hex << addr;
-					__PRINTF__(" 0x%16.16lX \n", addr);
+					__PRINTF__(" 0x%16.16" PRIX64 " \n", addr);
 
 					switch(addr)  // define address space
 					{

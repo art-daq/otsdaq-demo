@@ -4,6 +4,7 @@
 #include "otsdaq/Macros/CoutMacros.h"
 #include "otsdaq/Macros/InterfacePluginMacros.h"
 #include "otsdaq/MessageFacility/MessageFacility.h"
+#include <functional>
 
 using namespace ots;
 

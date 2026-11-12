@@ -488,6 +488,14 @@ if [ $is_mac -eq 1 ]; then
         perl -0pi -e 's/(\n[ \t]*case SIGSTKFLT:\n[ \t]*name = "SIGSTKFLT";\n[ \t]*break;)/\n#ifdef SIGSTKFLT$1\n#endif/; s/(\n[ \t]*signal\(SIGSTKFLT, signalHandler\);)/\n#ifdef SIGSTKFLT$1\n#endif/' $f
         echo "macOS: guarded Linux-only SIGSTKFLT in $f"
     fi
+    # artdaq-database stores JSON integers as int64_t but parses them with qi::long_ (type long).
+    # On Linux int64_t is long; on macOS it is long long, so assigning the parsed long into the value
+    # variant is ambiguous. Parse into exactly int64_t (correct on both; upstream fix is the same edit).
+    f=artdaq_database/artdaq-database/DataFormats/Json/json_reader.h
+    if [ -f $f ] && grep -q "qi::long_ >>" $f; then
+        sed -i '' 's/qi::long_ >>/qi::int_parser<std::int64_t>() >>/' $f
+        echo "macOS: JSON integer parser in $f uses int64_t"
+    fi
 fi
 cd $Base
 : > $Base/tmp/build-timings.txt

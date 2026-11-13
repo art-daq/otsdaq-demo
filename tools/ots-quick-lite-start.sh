@@ -496,6 +496,14 @@ if [ $is_mac -eq 1 ]; then
         sed -i '' 's/qi::long_ >>/qi::int_parser<std::int64_t>() >>/' $f
         echo "macOS: JSON integer parser in $f uses int64_t"
     fi
+    # TRACE's bitN_to_mask runs `expr $dIdx + 1` with dIdx empty for named levels ("fatal", ...).
+    # GNU expr reads the leading + as a quote and prints 1; BSD expr says "syntax error" (100+ lines
+    # at every `ots` start). ${dIdx:-0} gives the same result on both. Upstream fix is the same edit.
+    f=trace/script/bitN_to_mask
+    if [ -f $f ] && grep -q 'expr \$dIdx + 1' $f; then
+        sed -i '' 's/expr \$dIdx + 1/expr ${dIdx:-0} + 1/' $f
+        echo "macOS: $f works with BSD expr"
+    fi
     # Headers that gcc's libstdc++ pulls in indirectly but Apple's libc++ does not: <file>:<header>
     for fh in artdaq_database/artdaq-database/StorageProviders/FileSystemDB/provider_filedb.h:list; do
         f=${fh%%:*}; h=${fh##*:}

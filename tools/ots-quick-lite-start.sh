@@ -393,10 +393,11 @@ if [ $is_mac -eq 1 ]; then  # keg-only Homebrew packages (see the prerequisite p
     # cetmodules builds plugins as CMake MODULE libraries, which default to .so, but cetlib's plugin
     # loader looks for its shlib_suffix(), .dylib on macOS (e.g. messagefacility's "cerr" plugin).
     # CMake's Darwin platform file sets the suffix after -D cache values are read, so a plain
-    # -DCMAKE_SHARED_MODULE_SUFFIX is ignored; a rules-override file is applied after it.
+    # -DCMAKE_SHARED_MODULE_SUFFIX is ignored; a rules-override file is applied after it. cetmodules
+    # takes the generic CMAKE_USER_MAKE_RULES_OVERRIDE for its own toolchain file, so use the _CXX one.
     mkdir -p $Base/local
     echo 'set(CMAKE_SHARED_MODULE_SUFFIX ".dylib") # see ots-quick-lite-start.sh' > $Base/local/macos_rules.cmake
-    mac_rules="-DCMAKE_USER_MAKE_RULES_OVERRIDE=$Base/local/macos_rules.cmake"
+    mac_rules="-DCMAKE_USER_MAKE_RULES_OVERRIDE_CXX=$Base/local/macos_rules.cmake"
     cet_cmake_flags="$cet_cmake_flags $mac_cmake_flags $mac_rules"
     cet_cmake_flags_alias="$cet_cmake_flags_alias $mac_cmake_flags $mac_rules"
 fi

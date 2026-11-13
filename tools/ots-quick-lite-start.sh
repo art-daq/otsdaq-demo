@@ -390,8 +390,10 @@ cet_cmake_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_
 # same flags for use inside the generated setup_ots.sh aliases, where a bare ';' would end the command
 cet_cmake_flags_alias="${cet_cmake_flags//;/\\;}"
 if [ $is_mac -eq 1 ]; then  # keg-only Homebrew packages (see the prerequisite probe)
-    cet_cmake_flags="$cet_cmake_flags $mac_cmake_flags"
-    cet_cmake_flags_alias="$cet_cmake_flags_alias $mac_cmake_flags"
+    # cetmodules builds plugins as CMake MODULE libraries, which default to .so, but cetlib's plugin
+    # loader looks for its shlib_suffix(), .dylib on macOS (e.g. messagefacility's "cerr" plugin)
+    cet_cmake_flags="$cet_cmake_flags $mac_cmake_flags -DCMAKE_SHARED_MODULE_SUFFIX=.dylib"
+    cet_cmake_flags_alias="$cet_cmake_flags_alias $mac_cmake_flags -DCMAKE_SHARED_MODULE_SUFFIX=.dylib"
 fi
 
 function build_package()

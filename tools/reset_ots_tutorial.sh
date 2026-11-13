@@ -52,7 +52,7 @@ echo
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Extracting parameters..."
 echo
 
-TUTORIALS_STRING="first_demo artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
+TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
 
 KILLALL_REQUESTED=0   # -K | --killall: also kill every ots process and emulator of this user on this node
 USER_GAVE_TUTORIAL=0  # did the user name a tutorial? (if not, and kdialog works, they are asked)
@@ -116,6 +116,16 @@ stop_existing_ots()
 	fi
 }
 
+# Download URL to FILE: wget where available (Linux, unchanged), else curl (macOS ships curl, not wget).
+fetch_url()
+{
+	if command -v wget >/dev/null 2>&1; then
+		wget "$1" --no-check-certificate -O "$2"
+	else
+		curl -fsSL --insecure -o "$2" "$1"
+	fi
+}
+
 # Start the hardware emulator on port 4000, unless one is already running (e.g. left by another install:
 # a second one could not bind the port, and killing it would break that install).
 start_emulator()
@@ -173,9 +183,7 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 
 	#download and run get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh \
-		--no-check-certificate \
-		-O get_tutorial_data.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
 	chmod 755 get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	./get_tutorial_data.sh --tutorial ${TUTORIAL}
@@ -338,9 +346,7 @@ if [[ $KDIALOG_ALWAYS_YES == 1 || $? -eq 0 ]]; then #yes
 
 	#download get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh \
-		--no-check-certificate \
-		-O get_tutorial_data.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	qdbus $dbusRef Set "" value 2
 
@@ -382,9 +388,7 @@ if [[ "$TUTORIAL"  == "nim_plus" ]]; then
 
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Starting the ${TUTORIAL} tutorial extra steps..."
 	mv install_ots_repo.sh install_ots_repo.sh.bk >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_prepmodernization/develop/tools/install_ots_repo.sh \
-		--no-check-certificate \
-		-O install_ots_repo.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_prepmodernization/develop/tools/install_ots_repo.sh install_ots_repo.sh
 	source install_ots_repo.sh #install prep modernization repo and table definitions
 	rm -rf install_ots_repo.sh
 	mv install_ots_repo.sh.bk install_ots_repo.sh  >/dev/null 2>&1

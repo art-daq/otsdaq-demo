@@ -570,6 +570,13 @@ for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo;do
 done
 cd $Base
 
+# the job-count line written into setup_ots.sh (macOS has no /proc/cpuinfo); Linux text unchanged
+if [ $is_mac -eq 1 ]; then
+    setup_build_j='export BUILD_J=$(( $(sysctl -n hw.ncpu) + 1 ))'
+else
+    setup_build_j='export BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '"'"'{print $3}'"'"'` + 1))'
+fi
+
     cat >setup_ots.sh <<-EOF
 echo # This script is intended to be sourced.
 
@@ -578,11 +585,11 @@ otsdir=\$SCRIPT_DIR
 
 sh -c "[ \`ps \$\$ | grep bash | wc -l\` -gt 0 ] || { echo 'Please switch to the bash shell before running ots.'; exit; }" || exit
 
-export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+$setup_build_j
 export OTS_LITE=1
 [ -f /opt/rh/gcc-toolset-13/enable ] && source /opt/rh/gcc-toolset-13/enable
 [ -x $Base/cmake/bin/cmake ] && export PATH=$Base/cmake/bin:\$PATH
-export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+$setup_build_j
 
 #handle using ots-develop local install area
 if [ -d \$SCRIPT_DIR/local/install ]; then

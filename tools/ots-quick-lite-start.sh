@@ -520,6 +520,16 @@ if [ $is_mac -eq 1 ]; then
         sed -i '' 's/expr \$dIdx + 1/expr ${dIdx:-0} + 1/' $f
         echo "macOS: $f works with BSD expr"
     fi
+    # generate_oid() builds every new database document id (a table version, a group, a group cache,
+    # ...) from /proc/sys/kernel/random/uuid, which only Linux has. On macOS the read returns nothing,
+    # resize(24) pads it with NUL characters, and the NULs end the file name early: the insert then fails
+    # with "document already exist; filename= <.../GroupCache_x/>". Fall back to 12 random bytes as 24 hex
+    # characters (the same shape) when the uuid file is absent. Linux still takes the original path.
+    f=artdaq_database/artdaq-database/SharedCommon/helper_functions.cpp
+    if [ -f $f ] && grep -q '/proc/sys/kernel/random/uuid' $f && ! grep -q 'macOS: no /proc' $f; then
+        perl -0pi -e 's#(  std::string oid\(\(std::istreambuf_iterator<char>\(is\)\), std::istreambuf_iterator<char>\(\)\);\n)#$1\n  if (oid.size() < 32) {  // macOS: no /proc/sys/kernel/random/uuid; use /dev/urandom (24 hex characters)\n    std::ifstream ur("/dev/urandom", std::ios::binary);\n    unsigned char bytes[12] = {0};\n    ur.read(reinterpret_cast<char*>(bytes), sizeof(bytes));\n    static const char hex[] = "0123456789abcdef";\n    oid.clear();\n    for (unsigned char b : bytes) {\n      oid += hex[b >> 4];\n      oid += hex[b & 0xf];\n    }\n    return oid;\n  }\n#' $f
+        echo "macOS: generate_oid() in $f falls back to /dev/urandom"
+    fi
     # Headers that gcc's libstdc++ pulls in indirectly but Apple's libc++ does not: <file>:<header>
     for fh in artdaq_database/artdaq-database/StorageProviders/FileSystemDB/provider_filedb.h:list; do
         f=${fh%%:*}; h=${fh##*:}

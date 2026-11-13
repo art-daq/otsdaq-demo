@@ -504,6 +504,14 @@ if [ $is_mac -eq 1 ]; then
         sed -i '' 's/qi::long_ >>/qi::int_parser<std::int64_t>() >>/' $f
         echo "macOS: JSON integer parser in $f uses int64_t"
     fi
+    # The matching writer has the same mismatch: karma::long_ generates nothing for an int64_t that is
+    # long long, so every integer is written as an empty value and the re-read of every table fails
+    # ("json_db_to_gui: Unable to read JSON buffer", i.e. no table loads). Generate exactly int64_t.
+    f=artdaq_database/artdaq-database/DataFormats/Json/json_writer.h
+    if [ -f $f ] && grep -q "karma::long_ |" $f; then
+        sed -i '' 's/karma::long_ |/karma::int_generator<std::int64_t>() |/' $f
+        echo "macOS: JSON integer writer in $f uses int64_t"
+    fi
     # TRACE's bitN_to_mask runs `expr $dIdx + 1` with dIdx empty for named levels ("fatal", ...).
     # GNU expr reads the leading + as a quote and prints 1; BSD expr says "syntax error" (100+ lines
     # at every `ots` start). ${dIdx:-0} gives the same result on both. Upstream fix is the same edit.

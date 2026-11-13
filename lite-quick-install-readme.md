@@ -29,9 +29,14 @@ hep-concurrency, cetlib, fhicl-cpp, messagefacility, Catch2, TRACE, artdaq-datab
 copy is missing — xerces-c, libzmq, cppzmq. (`sudo dnf install xerces-c-devel
 cppzmq-devel` is still the faster route when you have root.)
 
-The script cannot install RPMs itself (that needs root). If a required OS library is
-missing and has no source fallback, `cmake` stops with a `Failed to find <Name>` error
-naming it; install the matching `-devel` package and rerun.
+The script cannot install packages itself, since that needs root. Before building anything it
+checks every system library the build needs, by asking CMake to find each one the way the build
+will. If something is missing, it stops and prints one command for an administrator, `sudo dnf
+install ...` or `sudo apt install ...` for your OS. Run that, then rerun the same install line.
+
+If a package is installed but CMake still cannot find it, the script says so. That usually means
+an environment variable such as `CPATH` or `CMAKE_PREFIX_PATH` points at another copy, often from
+a Spack or UPS setup. The script lists the ones that are set and the `unset` command to run.
 
 Internet access to `github.com` is required during install.
 
@@ -39,13 +44,18 @@ Internet access to `github.com` is required during install.
 
 ```bash
 mkdir ots && cd ots
-wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/feature/ots-lite/tools/ots-quick-lite-start.sh
+wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/ots-quick-lite-start.sh
 chmod +x ots-quick-lite-start.sh
-./ots-quick-lite-start.sh --branch feature/ots-lite
+./ots-quick-lite-start.sh
 ```
 
-(Until the lite work is merged into `develop`, both the URL and `--branch` must name
-`feature/ots-lite`; afterwards drop `--branch` and use the `develop` URL.)
+or as one line:
+
+```bash
+mkdir ots && cd ots && wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/ots-quick-lite-start.sh && chmod +x ots-quick-lite-start.sh && ./ots-quick-lite-start.sh
+```
+
+(To install a feature branch of the lite repos instead, add `--branch <name>`.)
 
 That is it. The script:
 

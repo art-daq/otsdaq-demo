@@ -2,7 +2,14 @@
 # reset_ots_tutorial.sh
 #	Launches the specified otsdaq tutorial. If no tutorial name is specified it will default to first_demo.
 #
-# usage: --tutorial <tutorial name>
+# usage: [--tutorial <tutorial name>] [-K | --killall]
+#
+#   -K | --killall
+#		Also kill ALL otsdaq processes and hardware emulators of YOUR user on this node (every
+#		install, not just this one): runs 'ots --hardkill' and 'killall -9 ots_udp_hw_emulator'.
+#		Without it, only the ots processes of THIS install directory are stopped, and an
+#		emulator that is already running is left alone. Use it when a stale emulator or ots from
+#		another install is in the way.
 #
 #   tutorial
 #		e.g. ${TUTORIAL} or artdaq
@@ -29,6 +36,7 @@ echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t ================
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --help"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --list # to list recommended tutorial names"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --tutorial <tutorial name>"
+echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: -K | --killall   # also kill ALL your ots processes and emulators on this node (all installs)"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t note: If no name provided, tutorial will default to '${TUTORIAL}'"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t"
@@ -46,19 +54,38 @@ echo
 
 TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
 
-if [[ "$1"  == "--tutorial" && "x$2" != "x" ]]; then
-	TUTORIAL="$2"
-elif [[ "$1"  == "--list" || "$1"  == "--help" ]]; then
-	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t --list found. Listing recommended parameter values..."
-	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t Tutorials = ${TUTORIALS_STRING}"
-	return  >/dev/null 2>&1 #return is used if script is sourced
-	exit
-elif [[ "x$1" != "x" ]]; then
+KILLALL_REQUESTED=0   # -K | --killall: also kill every ots process and emulator of this user on this node
+USER_GAVE_TUTORIAL=0  # did the user name a tutorial? (if not, and kdialog works, they are asked)
 
-	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Illegal parameters.. See above for usage."
-	return  >/dev/null 2>&1 #return is used if script is sourced
-	exit  #exit is used if script is run ./reset...
-fi
+while [[ "x$1" != "x" ]]; do
+	case "$1" in
+		--tutorial)
+			if [[ "x$2" == "x" ]]; then
+				echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t --tutorial needs a tutorial name. See above for usage."
+				return  >/dev/null 2>&1 #return is used if script is sourced
+				exit
+			fi
+			TUTORIAL="$2"
+			USER_GAVE_TUTORIAL=1
+			shift 2
+			;;
+		-K | --killall)
+			KILLALL_REQUESTED=1
+			shift
+			;;
+		--list | --help)
+			echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t --list found. Listing recommended parameter values..."
+			echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t Tutorials = ${TUTORIALS_STRING}"
+			return  >/dev/null 2>&1 #return is used if script is sourced
+			exit
+			;;
+		*)
+			echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Illegal parameters.. See above for usage."
+			return  >/dev/null 2>&1 #return is used if script is sourced
+			exit  #exit is used if script is run ./reset...
+			;;
+	esac
+done
 
 
 
@@ -70,6 +97,45 @@ fi
 
 shopt -s expand_aliases #allows for aliases in non-interactive mode (which apparently is critical depending on the temperment of the terminal)
 source setup_ots.sh
+
+# Stop old processes before (re)starting the tutorial.
+#	default:  only the ots processes of THIS install directory ('ots --killall' matches this install's
+#	          Data/ path), so other installs and emulators of the same user keep running.
+#	-K:       every ots process and every hardware emulator of this user on this node ('ots --hardkill').
+# 'echo Y |' answers the "Are you sure" question of ots: this script already asked (or was told to
+# bypass the question), and without it a non-interactive run silently aborts the kill.
+stop_existing_ots()
+{
+	if [[ $KILLALL_REQUESTED == 1 ]]; then
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t -K given: killing ALL ots processes and emulators of user ${USER} on this node..."
+		echo Y | ots --hardkill
+		killall -9 ots_udp_hw_emulator >/dev/null 2>&1
+	else
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Stopping ots processes of this install only (use -K to kill all of yours on this node)..."
+		echo Y | ots --killall
+	fi
+}
+
+# Download URL to FILE: wget where available (Linux, unchanged), else curl (macOS ships curl, not wget).
+fetch_url()
+{
+	if command -v wget >/dev/null 2>&1; then
+		wget "$1" --no-check-certificate -O "$2"
+	else
+		curl -fsSL --insecure -o "$2" "$1"
+	fi
+}
+
+# Start the hardware emulator on port 4000, unless one is already running (e.g. left by another install:
+# a second one could not bind the port, and killing it would break that install).
+start_emulator()
+{
+	if pgrep -f "ots_udp_hw_emulator 4000" >/dev/null 2>&1; then
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t An ots_udp_hw_emulator on port 4000 is already running; leaving it. (Use -K to restart it.)"
+	else
+		ots_udp_hw_emulator 4000 &
+	fi
+}
 
 
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t TUTORIAL \t= $TUTORIAL"
@@ -113,14 +179,11 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Script log saved here $Base/script_log/${SCRIPTNAME}.script and $Base/script_log/${SCRIPTNAME}_stderr.script"
 
-	ots --killall
-	killall -9 ots_udp_hw_emulator
+	stop_existing_ots
 
 	#download and run get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh \
-		--no-check-certificate \
-		-O get_tutorial_data.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
 	chmod 755 get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	./get_tutorial_data.sh --tutorial ${TUTORIAL}
@@ -159,7 +222,7 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 	ots  #launch normal mode (and open firefox)
 
 	#start hardware emulator on port 4000
-	ots_udp_hw_emulator 4000 &
+	start_emulator
 
 	echo
 	echo
@@ -220,7 +283,7 @@ echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Script log saved
 
 
 
-kdialog --yesno "This script starts otsdaq tutorials.\n\nBefore (re)starting the tutorial, this script will stop any existing tutorial process.\n\nDo you want to proceed?\n"
+kdialog --yesno "This script starts otsdaq tutorials.\n\nBefore (re)starting the tutorial, this script will stop the existing ots processes of this installation (run with -K to stop all of yours on this node).\n\nDo you want to proceed?\n"
 if [[ $KDIALOG_ALWAYS_YES == 0 && $? -eq 1 ]];then #no
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t User decided NOT to continue with starting the tutorial. Exiting script."
 	kdialog --msgbox "You decided NOT to continue with starting the tutorial. Exiting script."
@@ -229,11 +292,10 @@ if [[ $KDIALOG_ALWAYS_YES == 0 && $? -eq 1 ]];then #no
 	exit
 fi
 
-ots --killall
-killall -9 ots_udp_hw_emulator
+stop_existing_ots
 
 #if no parameters and kdialog is working, check which tutorial the user wants
-if [[ $KDIALOG_ALWAYS_YES == 0 && "x$1" == "x" ]]; then
+if [[ $KDIALOG_ALWAYS_YES == 0 && $USER_GAVE_TUTORIAL == 0 ]]; then
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t No user parameters found, so checking which tutorial to run."
 
 	kdialog --yesno "Do you want to proceed with the default tutorial, '${TUTORIAL}?'\n\n(if not, you will be prompted for tutorial name)"
@@ -285,9 +347,7 @@ if [[ $KDIALOG_ALWAYS_YES == 1 || $? -eq 0 ]]; then #yes
 
 	#download get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh \
-		--no-check-certificate \
-		-O get_tutorial_data.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	qdbus $dbusRef Set "" value 2
 
@@ -329,9 +389,7 @@ if [[ "$TUTORIAL"  == "nim_plus" ]]; then
 
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Starting the ${TUTORIAL} tutorial extra steps..."
 	mv install_ots_repo.sh install_ots_repo.sh.bk >/dev/null 2>&1
-	wget https://raw.githubusercontent.com/art-daq/otsdaq_prepmodernization/develop/tools/install_ots_repo.sh \
-		--no-check-certificate \
-		-O install_ots_repo.sh
+	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_prepmodernization/develop/tools/install_ots_repo.sh install_ots_repo.sh
 	source install_ots_repo.sh #install prep modernization repo and table definitions
 	rm -rf install_ots_repo.sh
 	mv install_ots_repo.sh.bk install_ots_repo.sh  >/dev/null 2>&1
@@ -376,7 +434,7 @@ sleep 3 #give time to activate configuration
 qdbus $dbusRef Set "" value 5
 
 #start hardware emulator on port 4000
-ots_udp_hw_emulator 4000 &
+start_emulator
 qdbus $dbusRef Set "" value 6
 
 kdialog --yesno "Do you want this script to launch your web browser?"

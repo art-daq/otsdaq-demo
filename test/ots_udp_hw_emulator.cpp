@@ -230,7 +230,9 @@ int makeSocket(const char* ip, int port, struct addrinfo*& p)
 		return -1;
 	}
 
-	freeaddrinfo(servinfo);
+	// Do NOT freeaddrinfo(servinfo) here: p (returned through the reference argument) points into
+	// that list and main() keeps using p->ai_addr / p->ai_addrlen for every streaming sendto().
+	// Freeing it left p dangling (same bug as the Console forwarder): garbage address on macOS.
 
 	return sockfd;
 }
@@ -574,7 +576,7 @@ int main(int argc, char** argv)
 					                           packetSz,
 					                           0,
 					                           (struct sockaddr*)&their_addr,
-					                           sizeof(struct sockaddr_storage))) == -1)
+					                           addr_len)) == -1)  // the length recvfrom reported; macOS rejects the larger sizeof(sockaddr_storage) with EINVAL
 					{
 						perror("hw: sendto");
 						exit(1);

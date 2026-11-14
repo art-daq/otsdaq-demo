@@ -10,6 +10,32 @@
 
 export OTS_LITE=1
 
+# macOS (native, Apple clang + Homebrew): everything Mac-specific below is guarded by is_mac,
+# so Linux behaviour is unchanged. macOS ships bash 3.2, which lacks associative arrays used
+# below; rerun under Homebrew's bash if it is there, otherwise say exactly how to get it.
+is_mac=0
+[ "$(uname -s)" = Darwin ] && is_mac=1
+if [ $is_mac -eq 1 ] && [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+    for b in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+        [ -x $b ] && exec $b "$0" "$@"
+    done
+    echo "ERROR: this script needs bash 4 or newer; macOS has bash ${BASH_VERSION}."
+    if ! command -v brew >/dev/null 2>&1; then
+        echo "       Install Homebrew (https://brew.sh) by pasting this into Terminal:"
+        echo
+        echo '   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        echo
+        echo "       then follow the 'Next steps' it prints, and run:"
+    else
+        echo "       Run:"
+    fi
+    echo
+    echo "   brew install bash"
+    echo
+    echo "       then rerun the same command you used."
+    exit 1
+fi
+
 git_status=`git status 2>/dev/null`
 git_sts=$?
 if [ $git_sts -eq 0 ];then
@@ -89,12 +115,18 @@ stderr_file=$( date | awk -v "SCRIPTNAME=$(basename $0)" '{print SCRIPTNAME"_"$1
 mkdir -p $Base/tmp
 exec  > >(tee "$Base/tmp/$alloutput_file")
 exec 2> >(tee "$Base/tmp/$stderr_file")
+# fixed name for the latest run's full output, so it can be found without knowing the date
+ln -sf "$alloutput_file" "$Base/tmp/install.log"
 
 ########################################
 ## Toolchain: gcc >= 12 (gcc-toolset-13 RPM on AL9) and cmake >= 3.29 (user-space download, no root)
 ## (3.29 is where CMAKE_PROJECT_TOP_LEVEL_INCLUDES accepts module names, which cet_cmake_flags relies on)
 ########################################
-if [ -f /opt/rh/gcc-toolset-13/enable ]; then
+brew_prefix=
+if [ $is_mac -eq 1 ]; then
+    # Apple clang from the Xcode Command Line Tools (g++ is clang on macOS); libraries from Homebrew
+    command -v brew >/dev/null 2>&1 && brew_prefix=$(brew --prefix)
+elif [ -f /opt/rh/gcc-toolset-13/enable ]; then
     source /opt/rh/gcc-toolset-13/enable
 else
     echo "WARNING: /opt/rh/gcc-toolset-13 not found; using system $(g++ --version | head -1). cetlib needs gcc >= 12."
@@ -105,7 +137,9 @@ if command -v cmake >/dev/null 2>&1; then
     cmake_ver=$(cmake --version | head -1 | awk '{print $3}')
     [ "$(printf '%s\n3.29\n' "$cmake_ver" | sort -V | head -1)" = "3.29" ] && cmake_ok=1
 fi
-if [ $cmake_ok -eq 0 ]; then
+if [ $cmake_ok -eq 0 ] && [ $is_mac -eq 1 ]; then
+    : # on macOS cmake comes from Homebrew; reported with the other missing packages below
+elif [ $cmake_ok -eq 0 ]; then
     if ! [ -x $Base/cmake/bin/cmake ]; then
         case "$(uname -m)" in
             x86_64)  cmake_arch=linux-x86_64;;
@@ -121,27 +155,44 @@ if [ $cmake_ok -eq 0 ]; then
     fi
     export PATH=$Base/cmake/bin:$PATH
 fi
-echo "Using $(cmake --version | head -1) and $(g++ --version | head -1)"
+if [ $cmake_ok -eq 1 ] || command -v cmake >/dev/null 2>&1; then
+    echo "Using $(cmake --version | head -1) and $(g++ --version 2>/dev/null | head -1)"
+fi
 
 ########################################
 ## Prerequisite check: things that must come from the OS (need root to install).
 ## Report everything missing at once, with the exact install commands, then stop.
 ########################################
-missing_rpm=(); missing_deb=(); fallback=()
-need() { # need <header> <rpm name> <deb name>: probe the compiler's include path (Debian multiarch
-         # keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet
-    if command -v g++ >/dev/null 2>&1; then
-        echo "#include <$1>" | g++ -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
+missing_rpm=(); missing_deb=(); missing_brew=(); fallback=(); mac_no_clt=0; mac_no_brew=0
+if [ $is_mac -eq 1 ]; then
+    # Apple clang comes with the Xcode Command Line Tools; without them g++/clang/git/make are stubs
+    xcode-select -p >/dev/null 2>&1 || mac_no_clt=1
+    [ -n "$brew_prefix" ] || mac_no_brew=1
+    [ $cmake_ok -eq 1 ] || missing_brew+=(cmake)
+fi
+have_cxx() { [ $is_mac -eq 1 ] && [ $mac_no_clt -eq 1 ] && return 1; command -v g++ >/dev/null 2>&1; }
+need() { # need <header> <rpm name> <deb name> <brew formula>: probe the compiler's include path (Debian
+         # multiarch keeps e.g. curl/curl.h under /usr/include/<triplet>/), fall back to /usr/include if no g++ yet.
+         # On macOS Homebrew headers are not on the default path; keg-only formulae (openssl@3) live under opt/.
+    local inc=
+    [ -n "$brew_prefix" ] && inc="-I$brew_prefix/include -I$brew_prefix/opt/$4/include"
+    if have_cxx; then
+        echo "#include <$1>" | g++ $inc -E -x c++ - -o /dev/null >/dev/null 2>&1 && return
     elif [ -e "/usr/include/$1" ]; then
         return
     fi
-    missing_rpm+=($2); missing_deb+=($3)
+    missing_rpm+=($2); missing_deb+=($3); missing_brew+=($4)
 }
-need boost/version.hpp            boost-devel      libboost-all-dev
-need sqlite3.h                    sqlite-devel     libsqlite3-dev
-need tbb/tbb.h                    tbb-devel        libtbb-dev
-need openssl/ssl.h                openssl-devel    libssl-dev
-need curl/curl.h                  libcurl-devel    libcurl4-openssl-dev
+need boost/version.hpp            boost-devel      libboost-all-dev        boost
+need sqlite3.h                    sqlite-devel     libsqlite3-dev          sqlite
+need tbb/tbb.h                    tbb-devel        libtbb-dev              tbb
+need openssl/ssl.h                openssl-devel    libssl-dev              openssl@3
+need curl/curl.h                  libcurl-devel    libcurl4-openssl-dev    curl
+if [ $is_mac -eq 1 ]; then
+    # Python's headers are found by the CMake probe below (Homebrew python or the CLT framework)
+    for t in git curl tar make awk sed; do command -v $t >/dev/null 2>&1 || missing_brew+=($t); done
+    command -v envsubst >/dev/null 2>&1 || missing_brew+=(gettext)   # used at run time by `ots`
+else
 ls /usr/include/python3*/Python.h >/dev/null 2>&1 || { missing_rpm+=(python3-devel); missing_deb+=(python3-dev); }
 for t in git curl wget tar make awk sed; do command -v $t >/dev/null 2>&1 || { missing_rpm+=($t); missing_deb+=($t); }; done
 # used at run time by the `ots` script, not by this installer
@@ -149,6 +200,7 @@ command -v envsubst >/dev/null 2>&1 || { missing_rpm+=(gettext); missing_deb+=(g
 command -v killall  >/dev/null 2>&1 || { missing_rpm+=(psmisc);  missing_deb+=(psmisc); }
 gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 [ "${gccmajor:-0}" -ge 12 ] || { missing_rpm+=(gcc-toolset-13-gcc-c++); missing_deb+=(g++-13); }
+fi
 
 # Every system package the build needs, found the way the build finds it: configure a tiny probe
 # project with the same policy range as cetmodules' find_package wrapper (under which CMake's own
@@ -158,7 +210,10 @@ gccmajor=$(g++ -dumpversion 2>/dev/null | cut -d. -f1)
 prefix=$Base/local/install
 probe=$Base/tmp/prereq_probe
 build_xerces=0; build_zmq=0; probe_ran=0; probe_missing=()
-if command -v g++ >/dev/null 2>&1; then
+# macOS: Homebrew's openssl@3 and sqlite are keg-only (not linked into $brew_prefix), so name them
+mac_cmake_flags=
+[ -n "$brew_prefix" ] && mac_cmake_flags="-DOPENSSL_ROOT_DIR=$brew_prefix/opt/openssl@3 -DSQLite3_ROOT=$brew_prefix/opt/sqlite"
+if have_cxx && command -v cmake >/dev/null 2>&1; then
     rm -rf $probe; mkdir -p $probe
     cat > $probe/CMakeLists.txt <<'PROBE'
 cmake_minimum_required(VERSION 3.24...4.1)
@@ -189,7 +244,7 @@ probe(XercesC XercesC_FOUND FALLBACK)
 find_package(cppzmq CONFIG QUIET)
 probe(cppzmq cppzmq_FOUND FALLBACK)
 PROBE
-    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix > $probe/probe.log 2>&1
+    cmake -S $probe -B $probe/build -DCMAKE_PREFIX_PATH=$prefix $mac_cmake_flags > $probe/probe.log 2>&1
     if grep -q "PROBE_OK\|PROBE_MISSING\|PROBE_FALLBACK" $probe/probe.log; then
         probe_ran=1
         probe_missing=($(sed -n 's/.*PROBE_MISSING \([A-Za-z0-9]*\).*/\1/p' $probe/probe.log))
@@ -207,41 +262,55 @@ declare -A pkg_rpm=([Boost]=boost-devel [TBB]=tbb-devel [SQLite3]=sqlite-devel [
                     [CURL]=libcurl-devel [Threads]=glibc-devel [Python]=python3-devel)
 declare -A pkg_deb=([Boost]=libboost-all-dev [TBB]=libtbb-dev [SQLite3]=libsqlite3-dev [OpenSSL]=libssl-dev
                     [CURL]=libcurl4-openssl-dev [Threads]=libc6-dev [Python]=python3-dev)
+declare -A pkg_brew=([Boost]=boost [TBB]=tbb [SQLite3]=sqlite [OpenSSL]=openssl@3
+                     [CURL]=curl [Threads]= [Python]=python)
 os_family=both
-if [ -r /etc/os-release ]; then
+if [ $is_mac -eq 1 ]; then
+    os_family=brew
+elif [ -r /etc/os-release ]; then
     os_ids=$(. /etc/os-release; echo "$ID $ID_LIKE")
     case " $os_ids " in
         *" rhel "*|*" fedora "*|*" centos "*|*" almalinux "*|*" rocky "*) os_family=rpm;;
         *" debian "*|*" ubuntu "*) os_family=deb;;
     esac
 fi
-pkg_installed() {  # pkg_installed <rpm name> <deb name>
+pkg_installed() {  # pkg_installed <rpm name> <deb name> <brew formula>
     case $os_family in
-        rpm) rpm -q "$1" >/dev/null 2>&1;;
-        deb) dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
-        *)   return 1;;
+        rpm)  rpm -q "$1" >/dev/null 2>&1;;
+        deb)  dpkg-query -W -f='${Status}' "$2" 2>/dev/null | grep -q "install ok installed";;
+        brew) [ -n "$3" ] && brew list --versions "$3" >/dev/null 2>&1;;
+        *)    return 1;;
     esac
 }
 installed_but_unseen=()
 for name in "${probe_missing[@]}"; do
-    if pkg_installed ${pkg_rpm[$name]} ${pkg_deb[$name]}; then
+    if pkg_installed "${pkg_rpm[$name]}" "${pkg_deb[$name]}" "${pkg_brew[$name]}"; then
         installed_but_unseen+=($name)
     else
-        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]})
+        missing_rpm+=(${pkg_rpm[$name]}); missing_deb+=(${pkg_deb[$name]}); missing_brew+=(${pkg_brew[$name]})
     fi
 done
 missing_rpm=($(printf '%s\n' "${missing_rpm[@]}" | awk 'NF && !seen[$0]++'))
 missing_deb=($(printf '%s\n' "${missing_deb[@]}" | awk 'NF && !seen[$0]++'))
+missing_brew=($(printf '%s\n' "${missing_brew[@]}" | awk 'NF && !seen[$0]++'))
+# the list that decides whether we can continue, for this OS
+if [ $is_mac -eq 1 ]; then n_missing=$(( ${#missing_brew[@]} + mac_no_clt + mac_no_brew )); else n_missing=${#missing_rpm[@]}; fi
 
 if [ ${#fallback[@]} -gt 0 ]; then
     echo
+    if [ $is_mac -eq 1 ]; then
+        echo "NOTE: not found on this Mac, will be built from source into $prefix (slower). To skip that, run:"
+        echo
+        echo "   brew install$(printf '%s\n' "${fallback[@]}" | grep -q xerces && echo ' xerces-c')$(printf '%s\n' "${fallback[@]}" | grep -q zmq && echo ' zeromq cppzmq')"
+    else
     echo "NOTE: not found on this system, will be built from source into $prefix (slower; install with root to skip):"
     printf '      %s\n' "${fallback[@]}"
+    fi
 fi
 if [ ${#installed_but_unseen[@]} -gt 0 ]; then
     echo
     for name in "${installed_but_unseen[@]}"; do
-        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}
+        p=${pkg_rpm[$name]}; [ $os_family = deb ] && p=${pkg_deb[$name]}; [ $os_family = brew ] && p=${pkg_brew[$name]}
         echo "ERROR: $p is installed, but CMake still cannot find $name."
     done
     echo "       Installing it again will not help. Usually an environment variable points CMake or the"
@@ -258,7 +327,35 @@ if [ ${#installed_but_unseen[@]} -gt 0 ]; then
     fi
     echo "       CMake's own message is in $probe/probe.log"
 fi
-if [ ${#missing_rpm[@]} -gt 0 ]; then
+if [ $is_mac -eq 1 ] && [ $n_missing -gt 0 ]; then
+    echo
+    echo "ERROR: required software is missing on this Mac. Run these in Terminal, in this order"
+    echo "       (no administrator account needed beyond what macOS itself asks for),"
+    echo "       then rerun the same command you used:"
+    echo
+    step=1
+    if [ $mac_no_clt -eq 1 ]; then
+        echo "   $step. Apple's command line tools (compiler, git, make); click Install in the window that opens:"
+        echo
+        echo "      xcode-select --install"
+        echo
+        step=$((step+1))
+    fi
+    if [ $mac_no_brew -eq 1 ]; then
+        echo "   $step. Homebrew (https://brew.sh); afterwards run the 'Next steps' commands it prints:"
+        echo
+        echo '      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        echo
+        step=$((step+1))
+    fi
+    if [ ${#missing_brew[@]} -gt 0 ]; then
+        echo "   $step. The libraries and tools otsdaq builds against:"
+        echo
+        echo "      brew install ${missing_brew[*]}"
+        echo
+    fi
+    [ $probe_ran -eq 0 ] && { echo "   (Some checks need the compiler and cmake; rerunning after the installs checks the rest.)"; echo; }
+elif [ ${#missing_rpm[@]} -gt 0 ]; then
     echo
     echo "ERROR: required system packages are missing and cannot be built by this script."
     echo "       Ask an administrator (root) to run this, then rerun the same command you used:"
@@ -275,9 +372,14 @@ if [ ${#missing_rpm[@]} -gt 0 ]; then
     [ $probe_ran -eq 0 ] && { echo; echo "   (Some checks need a C++ compiler; rerunning after the install checks the rest.)"; }
     echo
 fi
-[ ${#missing_rpm[@]} -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
+[ $n_missing -gt 0 ] || [ ${#installed_but_unseen[@]} -gt 0 ] && exit 1
+[ $is_mac -eq 1 ] && echo "Prerequisites: all found (Xcode Command Line Tools, Homebrew $brew_prefix, cmake, boost, tbb, sqlite, openssl@3, curl, python)."
 
+if [ $is_mac -eq 1 ]; then
+    BUILD_J=$(( $(sysctl -n hw.ncpu) + 1 ))
+else
 BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '{print $3}'` + 1))
+fi
 prefix=$Base/local/install
 mkdir -p $prefix
 
@@ -287,6 +389,18 @@ mkdir -p $prefix
 cet_cmake_flags="-DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_PREFIX_PATH=$prefix -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES:STRING=CetProvideDependency;CetMake;CetCMakeConfig -DBUILD_TESTING=OFF"
 # same flags for use inside the generated setup_ots.sh aliases, where a bare ';' would end the command
 cet_cmake_flags_alias="${cet_cmake_flags//;/\\;}"
+if [ $is_mac -eq 1 ]; then  # keg-only Homebrew packages (see the prerequisite probe)
+    # cetmodules builds plugins as CMake MODULE libraries, which default to .so, but cetlib's plugin
+    # loader looks for its shlib_suffix(), .dylib on macOS (e.g. messagefacility's "cerr" plugin).
+    # CMake's Darwin platform file sets the suffix after -D cache values are read, so a plain
+    # -DCMAKE_SHARED_MODULE_SUFFIX is ignored; a rules-override file is applied after it. cetmodules
+    # takes the generic CMAKE_USER_MAKE_RULES_OVERRIDE for its own toolchain file, so use the _CXX one.
+    mkdir -p $Base/local
+    echo 'set(CMAKE_SHARED_MODULE_SUFFIX ".dylib") # see ots-quick-lite-start.sh' > $Base/local/macos_rules.cmake
+    mac_rules="-DCMAKE_USER_MAKE_RULES_OVERRIDE_CXX=$Base/local/macos_rules.cmake"
+    cet_cmake_flags="$cet_cmake_flags $mac_cmake_flags $mac_rules"
+    cet_cmake_flags_alias="$cet_cmake_flags_alias $mac_cmake_flags $mac_rules"
+fi
 
 function build_package()
 {
@@ -355,6 +469,77 @@ if ! grep -q raw_value fhicl-cpp/fhiclcpp/extended_value.h; then
     curl -fsSL $fhicl_patch_url -o fhicl-cpp-db.patch || { echo "ERROR: cannot download fhicl-cpp patch $fhicl_patch_url"; exit 1; }
     git -C fhicl-cpp apply $Base/deps/fhicl-cpp-db.patch || { echo "ERROR: fhicl-cpp patch did not apply (fhicl-cpp develop moved?)"; exit 1; }
 fi
+# macOS: the default filesystem ignores case, so a source-root VERSION file is found by libc++'s own
+# `#include <version>` whenever that root is on the include path (cetlib), and the build fails with
+# "expected unqualified-id" on the version string. Rename it and tell cet_set_version_from_file. Idempotent.
+if [ $is_mac -eq 1 ]; then
+    for p in */; do
+        p=${p%/}
+        [ "$p" = cetmodules ] && continue   # CMake-only, no C++ include path
+        if [ -f $p/VERSION ] && grep -q "cet_set_version_from_file(" $p/CMakeLists.txt 2>/dev/null \
+           && ! grep -q "VERSION_FILE.*VERSION.txt" $p/CMakeLists.txt; then
+            mv $p/VERSION $p/VERSION.txt
+            sed -i '' 's|cet_set_version_from_file(|cet_set_version_from_file(VERSION_FILE ${PROJECT_SOURCE_DIR}/VERSION.txt |' $p/CMakeLists.txt
+            echo "macOS: renamed $p/VERSION to VERSION.txt (case-insensitive clash with <version>)"
+        fi
+        # Apple clang warns about things gcc does not (unused const variables, deprecated CommonCrypto
+        # MD5 in cetlib, ...). These packages hard-code WERROR in cet_set_compiler_flags, which adds
+        # -Werror after any flags passed in, so drop the WERROR keyword; warnings are still printed.
+        if grep -q "cet_set_compiler_flags" $p/CMakeLists.txt 2>/dev/null && grep -q "[[:<:]]WERROR[[:>:]]" $p/CMakeLists.txt; then
+            sed -i '' 's/[[:<:]]WERROR[[:>:]]//g' $p/CMakeLists.txt
+            echo "macOS: $p builds with warnings not treated as errors (Apple clang is stricter than gcc)"
+        fi
+    done
+    # artdaq-database uses SIGSTKFLT, a Linux-only signal. Guard it (upstream fix: the same #ifdef).
+    f=artdaq_database/artdaq-database/SharedCommon/printStackTrace.cpp
+    if [ -f $f ] && grep -q SIGSTKFLT $f && ! grep -q "#ifdef SIGSTKFLT" $f; then
+        perl -0pi -e 's/(\n[ \t]*case SIGSTKFLT:\n[ \t]*name = "SIGSTKFLT";\n[ \t]*break;)/\n#ifdef SIGSTKFLT$1\n#endif/; s/(\n[ \t]*signal\(SIGSTKFLT, signalHandler\);)/\n#ifdef SIGSTKFLT$1\n#endif/' $f
+        echo "macOS: guarded Linux-only SIGSTKFLT in $f"
+    fi
+    # artdaq-database stores JSON integers as int64_t but parses them with qi::long_ (type long).
+    # On Linux int64_t is long; on macOS it is long long, so assigning the parsed long into the value
+    # variant is ambiguous. Parse into exactly int64_t (correct on both; upstream fix is the same edit).
+    f=artdaq_database/artdaq-database/DataFormats/Json/json_reader.h
+    if [ -f $f ] && grep -q "qi::long_ >>" $f; then
+        sed -i '' 's/qi::long_ >>/qi::int_parser<std::int64_t>() >>/' $f
+        echo "macOS: JSON integer parser in $f uses int64_t"
+    fi
+    # The matching writer has the same mismatch: karma::long_ generates nothing for an int64_t that is
+    # long long, so every integer is written as an empty value and the re-read of every table fails
+    # ("json_db_to_gui: Unable to read JSON buffer", i.e. no table loads). Generate exactly int64_t.
+    f=artdaq_database/artdaq-database/DataFormats/Json/json_writer.h
+    if [ -f $f ] && grep -q "karma::long_ |" $f; then
+        sed -i '' 's/karma::long_ |/karma::int_generator<std::int64_t>() |/' $f
+        echo "macOS: JSON integer writer in $f uses int64_t"
+    fi
+    # TRACE's bitN_to_mask runs `expr $dIdx + 1` with dIdx empty for named levels ("fatal", ...).
+    # GNU expr reads the leading + as a quote and prints 1; BSD expr says "syntax error" (100+ lines
+    # at every `ots` start). ${dIdx:-0} gives the same result on both. Upstream fix is the same edit.
+    f=trace/script/bitN_to_mask
+    if [ -f $f ] && grep -q 'expr \$dIdx + 1' $f; then
+        sed -i '' 's/expr \$dIdx + 1/expr ${dIdx:-0} + 1/' $f
+        echo "macOS: $f works with BSD expr"
+    fi
+    # generate_oid() builds every new database document id (a table version, a group, a group cache,
+    # ...) from /proc/sys/kernel/random/uuid, which only Linux has. On macOS the read returns nothing,
+    # resize(24) pads it with NUL characters, and the NULs end the file name early: the insert then fails
+    # with "document already exist; filename= <.../GroupCache_x/>". Fall back to 12 random bytes as 24 hex
+    # characters (the same shape) when the uuid file is absent. Linux still takes the original path.
+    f=artdaq_database/artdaq-database/SharedCommon/helper_functions.cpp
+    if [ -f $f ] && grep -q '/proc/sys/kernel/random/uuid' $f && ! grep -q 'macOS: no /proc' $f; then
+        perl -0pi -e 's#(  std::string oid\(\(std::istreambuf_iterator<char>\(is\)\), std::istreambuf_iterator<char>\(\)\);\n)#$1\n  if (oid.size() < 32) {  // macOS: no /proc/sys/kernel/random/uuid; use /dev/urandom (24 hex characters)\n    std::ifstream ur("/dev/urandom", std::ios::binary);\n    unsigned char bytes[12] = {0};\n    ur.read(reinterpret_cast<char*>(bytes), sizeof(bytes));\n    static const char hex[] = "0123456789abcdef";\n    oid.clear();\n    for (unsigned char b : bytes) {\n      oid += hex[b >> 4];\n      oid += hex[b & 0xf];\n    }\n    return oid;\n  }\n#' $f
+        echo "macOS: generate_oid() in $f falls back to /dev/urandom"
+    fi
+    # Headers that gcc's libstdc++ pulls in indirectly but Apple's libc++ does not: <file>:<header>
+    for fh in artdaq_database/artdaq-database/StorageProviders/FileSystemDB/provider_filedb.h:list; do
+        f=${fh%%:*}; h=${fh##*:}
+        if [ -f $f ] && ! grep -q "#include <$h>" $f; then
+            # add after the first #include so include guards / pragma once stay first
+            perl -0pi -e "s/(#include [^\n]*\n)/\$1#include <$h>\n/" $f
+            echo "macOS: added #include <$h> to $f"
+        fi
+    done
+fi
 cd $Base
 : > $Base/tmp/build-timings.txt
 build_package Catch2 $Base/deps/Catch2 -DCMAKE_BUILD_TYPE=$build_type -DCMAKE_CXX_STANDARD=20 -DCMAKE_INSTALL_PREFIX=$prefix -DBUILD_TESTING=OFF || exit 1
@@ -419,6 +604,13 @@ for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo;do
 done
 cd $Base
 
+# the job-count line written into setup_ots.sh (macOS has no /proc/cpuinfo); Linux text unchanged
+if [ $is_mac -eq 1 ]; then
+    setup_build_j='export BUILD_J=$(( $(sysctl -n hw.ncpu) + 1 ))'
+else
+    setup_build_j='export BUILD_J=$((`cat /proc/cpuinfo|grep processor|tail -1|awk '"'"'{print $3}'"'"'` + 1))'
+fi
+
     cat >setup_ots.sh <<-EOF
 echo # This script is intended to be sourced.
 
@@ -427,11 +619,11 @@ otsdir=\$SCRIPT_DIR
 
 sh -c "[ \`ps \$\$ | grep bash | wc -l\` -gt 0 ] || { echo 'Please switch to the bash shell before running ots.'; exit; }" || exit
 
-export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+$setup_build_j
 export OTS_LITE=1
 [ -f /opt/rh/gcc-toolset-13/enable ] && source /opt/rh/gcc-toolset-13/enable
 [ -x $Base/cmake/bin/cmake ] && export PATH=$Base/cmake/bin:\$PATH
-export BUILD_J=\$((\`cat /proc/cpuinfo|grep processor|tail -1|awk '{print \$3}'\` + 1))
+$setup_build_j
 
 #handle using ots-develop local install area
 if [ -d \$SCRIPT_DIR/local/install ]; then

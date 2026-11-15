@@ -37,6 +37,11 @@ examples: `basename $0`
 --branch      Git branch to check out in srcs/ for the 3 lite repos (default: develop)
 --repo-base   Where to clone the 4 repos from (default: https://github.com/art-daq;
               may be a local directory containing otsdaq, otsdaq-utilities, otsdaq-demo)
+--tutorial    Tutorial data set to install on a first install: a branch of otsdaq_demo_data
+              (default: first_demo_waveform_maxlite, first_demo_waveform plus its database in the
+              text store format, so no converter is needed)
+--tutorial-repo  Where to clone the tutorial data from (default: https://github.com/art-daq/otsdaq_demo_data;
+              may be a local clone)
 --no-pull     Do not git pull repos that are already checked out
 --no-build    Only set up toolchain, deps, and sources; skip the otsdaq build
 --arch        Cross-compile the otsdaq repos for aarch64 (64-bit ARM) or arm32 (32-bit ARM hard-float)
@@ -53,6 +58,9 @@ eval env_opts=\${$env_opts_var-} # can be args too
 
 branch=develop
 repo_base=https://github.com/art-daq
+tutorial=first_demo_waveform_maxlite
+tutorial_repo=https://github.com/art-daq/otsdaq_demo_data
+installed_tutorial_data=0
 build_type=Release
 installStatus=0
 eval "set -- $env_opts \"\$@\""
@@ -72,6 +80,8 @@ while [ -n "${1-}" ];do
             -debug)              build_type=Debug;;
             -branch)             eval $reqarg; branch=$1; shift;;
             -repo-base)          eval $reqarg; repo_base=$1; shift;;
+            -tutorial)           eval $reqarg; tutorial=$1; shift;;
+            -tutorial-repo)      eval $reqarg; tutorial_repo=$1; shift;;
             -no-pull)            opt_no_pull=1;;
             -no-build)           opt_no_build=1;;
             -arch)               eval $reqarg; target_arch=$1; shift;;
@@ -537,22 +547,27 @@ EOF
 cd $Base
 
 # Install the tutorial Data and databases on first install only; rebuilds (mz_uc) leave them alone.
+# The data is a branch of otsdaq_demo_data. The default one (first_demo_waveform_maxlite) carries its
+# database in the text store format (databases/textdb/test_db), which is what maxlite reads: maxlite builds no
+# artdaq-database and so can not convert the artdaq-database format of the other tutorial branches.
 # The helper scripts are taken from the local checkout (no unauthenticated downloads).
-# get_tutorial_data.sh backs up and replaces BOTH areas, so it is only run when both are absent.
 if ! [ -d Data ] && ! [ -d databases ]; then
-    # get_tutorial_data.sh sources ./setup_ots.sh and only knows the artdaq-database layout,
-    # so run it from tmp/ with a two-line setup_ots.sh pointing at databases/filesystemdb.
-    # (maxlite reads databases/textdb; the tutorial database is not converted yet.)
-    mkdir -p $Base/tmp/tutorial_data && cd $Base/tmp/tutorial_data
-    cp $Base/srcs/otsdaq-demo/tools/get_tutorial_data.sh . && chmod 755 get_tutorial_data.sh \
-      || { echo "ERROR: srcs/otsdaq-demo/tools/get_tutorial_data.sh not found"; exit 1; }
-    printf 'export USER_DATA="%s"\nexport ARTDAQ_DATABASE_URI="%s"\n' \
-        "$Base/Data" "filesystemdb://$Base/databases/filesystemdb/test_db" > setup_ots.sh
-    ./get_tutorial_data.sh
-    rm -rf $Base/tmp/script_log; mv script_log $Base/tmp/ 2>/dev/null
-    cd $Base && rm -rf $Base/tmp/tutorial_data
-    [ -d Data ] && [ -d databases ] || { echo "ERROR: get_tutorial_data.sh did not create Data/ and databases/ (see $Base/tmp/script_log)"; exit 1; }
-    mkdir -p $Base/databases/textdb/test_db
+    mkdir -p $Base/tmp && cd $Base/tmp && rm -rf otsdaq_demo_data
+    git clone -q --depth 1 -b $tutorial $tutorial_repo otsdaq_demo_data \
+      || { echo "ERROR: git clone -b $tutorial $tutorial_repo failed (network, or the branch does not exist)."; exit 1; }
+    [ -d otsdaq_demo_data/Data ] && [ -d otsdaq_demo_data/databases ] \
+      || { echo "ERROR: $tutorial has no Data/ and databases/ directories."; exit 1; }
+    mv otsdaq_demo_data/Data $Base/Data
+    mv otsdaq_demo_data/databases $Base/databases
+    rm -rf $Base/tmp/otsdaq_demo_data
+    cd $Base
+    if ! [ -d databases/textdb/test_db ]; then
+        mkdir -p $Base/databases/textdb/test_db
+        echo "WARNING: tutorial '$tutorial' has no text store (databases/textdb), only the artdaq-database format in"
+        echo "         databases/filesystemdb: the text store is empty. Convert it from an ots lite install of this branch"
+        echo "         (ai_scripts/convert_config_store.sh all ...), or install --tutorial first_demo_waveform_maxlite."
+    fi
+    installed_tutorial_data=1
 
     cp $Base/srcs/otsdaq-demo/tools/reset_ots_tutorial.sh . && chmod 755 reset_ots_tutorial.sh
 elif ! [ -d Data ] || ! [ -d databases ]; then
@@ -597,6 +612,27 @@ echo
 echo "=== build timings:"
 cat $Base/tmp/build-timings.txt
 echo
+
+# Table definitions of the tutorial data predate some tables of this build (e.g. the Iterate group's
+# IterationCommandIncludedSubsystemsTable): add the missing ones to Data/TableInfo.
+# UpdateOTS.sh --tables copies only the tables listed in Data/ServiceData/CoreTableInfoNames.dat, a list that
+# ots itself completes at its first start; do the same here (every table of the Context, Backbone and Iterate
+# groups of the installed data-core) so the update does not depend on a first run.
+if [ $installStatus -eq 0 ] && [ $installed_tutorial_data -eq 1 ] && [ $opt_no_build -eq 0 ]; then
+    core_names=$Base/Data/ServiceData/CoreTableInfoNames.dat
+    if [ -f $core_names ]; then
+        [ -n "$(tail -c1 $core_names)" ] && echo >> $core_names    # the last line may lack its newline
+        for f in $Base/local/install/data-core/TableInfo/{ContextGroup,BackboneGroup,IterateGroup}/*TableInfo.xml; do
+            [ -f "$f" ] || continue
+            core_entry=$(basename $(dirname $f))/$(basename $f Info.xml)
+            grep -qx "$core_entry" $core_names || echo "$core_entry" >> $core_names
+        done
+    fi
+    echo "Updating the table definitions of Data/TableInfo (UpdateOTS.sh --tables)..."
+    ( cd $Base && source ./setup_ots.sh >/dev/null 2>&1 && UpdateOTS.sh --tables > $Base/tmp/UpdateOTS-tables.log 2>&1 ) \
+      && echo "  done (log: $Base/tmp/UpdateOTS-tables.log)" \
+      || echo "  WARNING: UpdateOTS.sh --tables failed (see $Base/tmp/UpdateOTS-tables.log); run it after 'source setup_ots.sh'."
+fi
 
 if [ $installStatus -eq 0 ]; then
     echo "otsdaq maxlite has been installed correctly. Use 'source setup_ots.sh' to setup your otsdaq software."

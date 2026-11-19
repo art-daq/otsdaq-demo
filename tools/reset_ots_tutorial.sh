@@ -52,7 +52,7 @@ echo
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Extracting parameters..."
 echo
 
-TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator mu2e_roc mu2e_dcs slow_controls"
+TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator subsystems mu2e_roc mu2e_dcs slow_controls"
 
 KILLALL_REQUESTED=0   # -K | --killall: also kill every ots process and emulator of this user on this node
 USER_GAVE_TUTORIAL=0  # did the user name a tutorial? (if not, and kdialog works, they are asked)
@@ -96,7 +96,98 @@ if ! [ -e setup_ots.sh ]; then
 fi
 
 shopt -s expand_aliases #allows for aliases in non-interactive mode (which apparently is critical depending on the temperment of the terminal)
-source setup_ots.sh
+
+########################################
+## The "subsystems" tutorial: three ots instances side by side
+##	top (the top level), sub1 and sub2 (two subsystems), each with its own user data folder Data_<name>
+##	and its own ports. They are chosen by the argument of setup_ots.sh:  source setup_ots.sh sub1
+##	The names are written into setup_ots.sh by setup_ots_subsystems.sh (otsdaq/ai_scripts). After that
+##	a plain 'source setup_ots.sh' lists the names and stops, so loading any other tutorial takes the
+##	names out again.
+########################################
+SUBSYSTEMS_BEGIN="# >>> ots subsystems (ai_scripts/setup_ots_subsystems.sh) >>>"
+SUBSYSTEMS_END="# <<< ots subsystems <<<"
+SUBSYSTEMS_START_ORDER="sub1 sub2 top"	#the subsystems first: the top level shows a subsystem as failing until it is up
+SUBSYSTEMS_SPECS="top:2115:2110:2111 sub1:2015:2010:2011 sub2:2215:2210:2211"	#name:main port:Configure UDP port:Macro Maker UDP port
+
+# use the tool in OTS_TUTORIAL_TOOLS_DIR (to test a change), else download it
+fetch_tutorial_tool() # <file name> <url>
+{
+	if [ -n "$OTS_TUTORIAL_TOOLS_DIR" ] && [ -f "$OTS_TUTORIAL_TOOLS_DIR/$1" ]; then
+		cp "$OTS_TUTORIAL_TOOLS_DIR/$1" "$1"
+	else
+		fetch_url "$2" "$1"
+	fi
+}
+
+stop_subsystem_instances()
+{
+	local name
+	for name in $SUBSYSTEMS_START_ORDER; do
+		( source ./setup_ots.sh $name >/dev/null 2>&1 && echo Y | ots --killall >/dev/null 2>&1 )
+	done
+}
+
+remove_subsystems_block()
+{
+	awk -v b="$SUBSYSTEMS_BEGIN" -v e="$SUBSYSTEMS_END" '$0==b{skip=1} !skip{print} $0==e{skip=0}' setup_ots.sh > setup_ots.sh.new \
+		&& mv setup_ots.sh setup_ots.sh.bak.`date +%y%m%d%H%M%S` && mv setup_ots.sh.new setup_ots.sh
+}
+
+# names and ports into setup_ots.sh, the paths of the subsystems into the database, the table definitions up to date
+subsystems_tutorial_setup()
+{
+	local tool="$OTS_SOURCE/otsdaq/ai_scripts/setup_ots_subsystems.sh"
+	if ! [ -f "$tool" ]; then
+		fetch_url https://raw.githubusercontent.com/art-daq/otsdaq/develop/ai_scripts/setup_ots_subsystems.sh setup_ots_subsystems.sh
+		chmod 755 setup_ots_subsystems.sh; tool=./setup_ots_subsystems.sh
+	fi
+	"$tool" "$PWD" $SUBSYSTEMS_SPECS
+	[ "$tool" == "./setup_ots_subsystems.sh" ] && rm -f setup_ots_subsystems.sh
+
+	#the tutorial database holds the placeholders TUTORIAL_PLACEHOLDER_USER, TUTORIAL_PLACEHOLDER_HOST and /TUTORIAL_PLACEHOLDER_OTS_DIR for the path of each subsystem
+	local databasePath=$(echo ${ARTDAQ_DATABASE_URI} | cut -d':' -f2)
+	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t The subsystems are at $(id -un)@$(hostname -f):$PWD/Data_<name>"
+	grep -rlE 'TUTORIAL_PLACEHOLDER_USER|TUTORIAL_PLACEHOLDER_HOST|TUTORIAL_PLACEHOLDER_OTS_DIR' "$databasePath" 2>/dev/null | \
+		xargs -r sed -i -e "s#TUTORIAL_PLACEHOLDER_USER#$(id -un)#g" -e "s#TUTORIAL_PLACEHOLDER_HOST#$(hostname -f)#g" -e "s#/TUTORIAL_PLACEHOLDER_OTS_DIR#$PWD#g"
+
+	local name
+	for name in $SUBSYSTEMS_START_ORDER; do
+		( source ./setup_ots.sh $name >/dev/null 2>&1 && export OTS_WIZ_MODE_MAIN_PORT=$OTS_MAIN_PORT && UpdateOTS.sh --tables >/dev/null 2>&1 )
+	done
+}
+
+# start every instance, the subsystems first. $1 = "activate only": Wiz mode just activates the saved groups, then stop
+start_subsystems_tutorial()
+{
+	local name
+	for name in $SUBSYSTEMS_START_ORDER; do
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Starting the instance '${name}'..."
+		( source ./setup_ots.sh $name >/dev/null 2>&1
+		  export OTS_WIZ_MODE_MAIN_PORT=$OTS_MAIN_PORT #Wiz mode of one instance must not take the port of another
+		  ots --wiz #just to test activate the saved groups
+		  if [ "$1" == "activate only" ]; then ots -k; else ots; fi )
+		sleep 5
+	done
+	[ "$1" == "activate only" ] && return
+	echo
+	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Log in at the top level: http://$(hostname -f):2115/urn:xdaq-application:lid=200/"
+	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t The subsystems are at ports 2015 (sub1) and 2215 (sub2). Stop one instance with: source setup_ots.sh <name> && echo Y | ots -k"
+}
+
+if grep -qF "$SUBSYSTEMS_BEGIN" setup_ots.sh 2>/dev/null; then #setup_ots.sh knows the subsystem names: it needs one of them
+	if [[ "$TUTORIAL" == "subsystems" ]]; then
+		stop_subsystem_instances
+		source setup_ots.sh top
+	else
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Stopping the subsystem instances and taking their names out of setup_ots.sh (a backup is made)..."
+		stop_subsystem_instances
+		remove_subsystems_block
+		source setup_ots.sh
+	fi
+else
+	source setup_ots.sh
+fi
 
 # Stop old processes before (re)starting the tutorial.
 #	default:  only the ots processes of THIS install directory ('ots --killall' matches this install's
@@ -183,7 +274,7 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 
 	#download and run get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
+	fetch_tutorial_tool get_tutorial_data.sh https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh
 	chmod 755 get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	./get_tutorial_data.sh --tutorial ${TUTORIAL}
@@ -203,12 +294,20 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 	#in case of minor table updates, update tables:
 	UpdateOTS.sh --tables >/dev/null 2>&1
 
+	if [[ "$TUTORIAL" == "subsystems" ]]; then
+		subsystems_tutorial_setup
+	fi
+
 	#usually skip tutorial launch is run during quick_ots_install.sh
 	if [ "$SKIP_TUTORIAL_LAUNCH" = 1 ]; then
 		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Skipping tutorial launch flag is set..."
 
-		ots --wiz #just to test activate the saved groups
-		ots -k
+		if [[ "$TUTORIAL" == "subsystems" ]]; then
+			start_subsystems_tutorial "activate only"
+		else
+			ots --wiz #just to test activate the saved groups
+			ots -k
+		fi
 
 		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Tutorial reset script complete."
 		unalias kdialog
@@ -218,8 +317,12 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Launching tutorial..."
 
-	ots --wiz #just to test activate the saved groups
-	ots  #launch normal mode (and open firefox)
+	if [[ "$TUTORIAL" == "subsystems" ]]; then
+		start_subsystems_tutorial
+	else
+		ots --wiz #just to test activate the saved groups
+		ots  #launch normal mode (and open firefox)
+	fi
 
 	#start hardware emulator on port 4000
 	start_emulator
@@ -301,7 +404,7 @@ if [[ $KDIALOG_ALWAYS_YES == 0 && $USER_GAVE_TUTORIAL == 0 ]]; then
 	kdialog --yesno "Do you want to proceed with the default tutorial, '${TUTORIAL}?'\n\n(if not, you will be prompted for tutorial name)"
 	if [[ $? -eq 1 ]]; then #no
 
-		TUTORIAL=$(kdialog --combobox "Please select the desired tutorial name:" "first_demo" "first_demo_waveform" "nim_plus" "iterator" "artdaq" --default "first_demo")
+		TUTORIAL=$(kdialog --combobox "Please select the desired tutorial name:" "first_demo" "first_demo_waveform" "nim_plus" "iterator" "artdaq" "subsystems" --default "first_demo")
 
 	fi
 
@@ -347,7 +450,7 @@ if [[ $KDIALOG_ALWAYS_YES == 1 || $? -eq 0 ]]; then #yes
 
 	#download get_tutorial_data script
 	rm -rf get_tutorial_data.sh >/dev/null 2>&1
-	fetch_url https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh get_tutorial_data.sh
+	fetch_tutorial_tool get_tutorial_data.sh https://raw.githubusercontent.com/art-daq/otsdaq_demo/develop/tools/get_tutorial_data.sh
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Getting tutorial Data..."
 	qdbus $dbusRef Set "" value 2
 
@@ -360,6 +463,10 @@ if [[ $KDIALOG_ALWAYS_YES == 1 || $? -eq 0 ]]; then #yes
 
 	#in case of minor table updates, update tables:
 	UpdateOTS.sh --tables >/dev/null 2>&1
+
+	if [[ "$TUTORIAL" == "subsystems" ]]; then
+		subsystems_tutorial_setup
+	fi
 
 	########################################
 	########################################
@@ -419,6 +526,13 @@ return  >/dev/null 2>&1 #return is used if script is sourced
 
 
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t User decided to start up the tutorial."
+
+if [[ "$TUTORIAL" == "subsystems" ]]; then #the three instances, then the emulator
+	start_subsystems_tutorial
+	start_emulator
+	return  >/dev/null 2>&1 #return is used if script is sourced
+	exit
+fi
 
 dbusRef=`kdialog --progressbar "Starting tutorial and launching ots..." 7`
 qdbus $dbusRef Set "" value 1

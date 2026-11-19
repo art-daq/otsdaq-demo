@@ -8,6 +8,12 @@
 #  example run:
 #	./get_tutorial_data.sh --tutorial first_demo
 #
+#  The data comes from the branch <tutorial name> of https://github.com/art-daq/otsdaq_demo_data (set
+#  OTS_TUTORIAL_DATA_REPO to another repository URL or path, e.g. a local clone, to test a branch).
+#  A branch with a Data folder fills USER_DATA. A branch with folders Data_<name> and no Data folder
+#  (the tutorial subsystems: several instances side by side) fills one folder Data_<name> next to USER_DATA
+#  for each of them and leaves USER_DATA alone. Existing folders are kept as <folder>.bak<date>.
+#
 
 if ! [ -e setup_ots.sh ]; then
   echo "You must run this script from an OTSDAQ installation directory (where setup_ots.sh is)!"
@@ -124,7 +130,14 @@ echo
 echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t git clone https://github.com/art-daq/otsdaq_demo_data -b ${TUTORIAL}"
 echo
 
-git clone https://github.com/art-daq/otsdaq_demo_data.git -b ${TUTORIAL}
+git clone ${OTS_TUTORIAL_DATA_REPO:-https://github.com/art-daq/otsdaq_demo_data.git} -b ${TUTORIAL} otsdaq_demo_data
+
+#several instances (branch with Data_<name> folders and no Data folder)?
+MULTI_INSTANCE=0
+if ! [ -d otsdaq_demo_data/Data ] && ls -d otsdaq_demo_data/Data_* >/dev/null 2>&1; then
+	MULTI_INSTANCE=1
+	echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t The tutorial has several instances: $(cd otsdaq_demo_data; ls -d Data_* | tr '\n' ' ')"
+fi
 
 # bkup current user data
 echo
@@ -133,7 +146,11 @@ echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t Backing up curr
 echo
 echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t mv ${USER_DATA} ${USER_DATA}.bak`date +%y%m%d%H%M%S`"
 echo
-mv ${USER_DATA} ${USER_DATA}.bak`date +%y%m%d%H%M%S`
+if [ $MULTI_INSTANCE == 0 ]; then
+	mv ${USER_DATA} ${USER_DATA}.bak`date +%y%m%d%H%M%S`
+else
+	echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t (several instances: ${USER_DATA} is left alone)"
+fi
 
 # move download user data into position
 echo
@@ -142,7 +159,18 @@ echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t Installing tuto
 echo
 echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t mv otsdaq_demo_data/Data ${USER_DATA}"
 echo
-mv otsdaq_demo_data/Data ${USER_DATA}
+if [ $MULTI_INSTANCE == 0 ]; then
+	mv otsdaq_demo_data/Data ${USER_DATA}
+else
+	INSTANCE_PARENT=$(dirname ${USER_DATA})
+	for INSTANCE_DIR in otsdaq_demo_data/Data_*
+	do
+		INSTANCE_NAME=$(basename ${INSTANCE_DIR})
+		[ -e ${INSTANCE_PARENT}/${INSTANCE_NAME} ] && mv ${INSTANCE_PARENT}/${INSTANCE_NAME} ${INSTANCE_PARENT}/${INSTANCE_NAME}.bak`date +%y%m%d%H%M%S`
+		echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t mv ${INSTANCE_DIR} ${INSTANCE_PARENT}/${INSTANCE_NAME}"
+		mv ${INSTANCE_DIR} ${INSTANCE_PARENT}/${INSTANCE_NAME}
+	done
+fi
 
 echo
 echo -e "$(date +%d%h%y.%T) get_tutorial_data.sh [${LINENO}]  \t *****************************************************"

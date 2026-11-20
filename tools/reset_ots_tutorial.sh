@@ -2,7 +2,12 @@
 # reset_ots_tutorial.sh
 #	Launches the specified otsdaq tutorial. If no tutorial name is specified it will default to first_demo.
 #
-# usage: [--tutorial <tutorial name>] [-K | --killall]
+# usage: [--tutorial <tutorial name>] [--wiz] [-K | --killall]
+#
+#   --wiz
+#		Load the starting point, then leave you in Wiz mode only (ots -w): no normal mode and no hardware
+#		emulator. Wiz mode is like Safe Mode: it always works, so it is the place to start the
+#		configuration tutorials (tables, groups, aliases). Not for the 'subsystems' tutorial.
 #
 #   -K | --killall
 #		Also kill ALL otsdaq processes and hardware emulators of YOUR user on this node (every
@@ -36,6 +41,7 @@ echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t ================
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --help"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --list # to list recommended tutorial names"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --tutorial <tutorial name>"
+echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: --wiz   # load the starting point and stay in Wiz mode (no normal mode, no emulator)"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t usage: -K | --killall   # also kill ALL your ots processes and emulators on this node (all installs)"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t"
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t\t note: If no name provided, tutorial will default to '${TUTORIAL}'"
@@ -54,6 +60,7 @@ echo
 
 TUTORIALS_STRING="first_demo first_demo_waveform artdaq nim_plus iterator subsystems mu2e_roc mu2e_dcs slow_controls"
 
+WIZ_ONLY=0  # --wiz: leave the user in Wiz mode only
 KILLALL_REQUESTED=0   # -K | --killall: also kill every ots process and emulator of this user on this node
 USER_GAVE_TUTORIAL=0  # did the user name a tutorial? (if not, and kdialog works, they are asked)
 
@@ -68,6 +75,10 @@ while [[ "x$1" != "x" ]]; do
 			TUTORIAL="$2"
 			USER_GAVE_TUTORIAL=1
 			shift 2
+			;;
+		--wiz)
+			WIZ_ONLY=1
+			shift
 			;;
 		-K | --killall)
 			KILLALL_REQUESTED=1
@@ -88,6 +99,12 @@ while [[ "x$1" != "x" ]]; do
 done
 
 
+
+if [[ $WIZ_ONLY == 1 && "$TUTORIAL" == "subsystems" ]]; then
+	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t --wiz does not work with the subsystems tutorial (it starts three instances). Leave out --wiz."
+	return  >/dev/null 2>&1 #return is used if script is sourced
+	exit
+fi
 
 if ! [ -e setup_ots.sh ]; then
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t You must run this script from an OTSDAQ installation directory with a setup_ots.sh script!"
@@ -315,6 +332,16 @@ if [[ "$KDIALOG_ALWAYS_YES" = 1 || "$KDIALOG_TEST" == *"no kdialog"* || "x$DISPL
 		exit  #exit is used if script is run ./reset...
 	fi
 
+	if [[ $WIZ_ONLY == 1 ]]; then #stay in Wiz mode: no normal mode, no emulator
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Starting Wiz mode only (--wiz)..."
+		ots --wiz
+		echo
+		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Tutorial reset script complete. You are in Wiz mode: open the address above and use the Wiz mode access code."
+		unalias kdialog
+		return  >/dev/null 2>&1 #return is used if script is sourced
+		exit  #exit is used if script is run ./reset...
+	fi
+
 	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Launching tutorial..."
 
 	if [[ "$TUTORIAL" == "subsystems" ]]; then
@@ -526,6 +553,13 @@ return  >/dev/null 2>&1 #return is used if script is sourced
 
 
 echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t User decided to start up the tutorial."
+
+if [[ $WIZ_ONLY == 1 ]]; then #stay in Wiz mode: no normal mode, no emulator
+	ots --wiz
+	echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Tutorial reset script complete. You are in Wiz mode: open the address above and use the Wiz mode access code."
+	return  >/dev/null 2>&1 #return is used if script is sourced
+	exit
+fi
 
 if [[ "$TUTORIAL" == "subsystems" ]]; then #the three instances, then the emulator
 	start_subsystems_tutorial

@@ -168,6 +168,15 @@ subsystems_tutorial_setup()
 	grep -rlE 'TUTORIAL_PLACEHOLDER_USER|TUTORIAL_PLACEHOLDER_HOST|TUTORIAL_PLACEHOLDER_OTS_DIR' "$databasePath" 2>/dev/null | \
 		xargs -r sed -i -e "s#TUTORIAL_PLACEHOLDER_USER#$(id -un)#g" -e "s#TUTORIAL_PLACEHOLDER_HOST#$(hostname -f)#g" -e "s#/TUTORIAL_PLACEHOLDER_OTS_DIR#$PWD#g"
 
+	#the top level opens a subsystem at localhost:<port>: a browser on the machine that runs otsdaq may not reach that, so
+	#	the top level gets a port translation map that gives the browser the host name (see the tutorial, slides on the map)
+	local mapHost=$(hostname -f)
+	{
+		echo "# request origin | address of the subsystem | address to give the browser (written by reset_ots_tutorial.sh)"
+		echo "http://${mapHost}:2115 | http://localhost:2015 | http://${mapHost}:2015"
+		echo "http://${mapHost}:2115 | http://localhost:2215 | http://${mapHost}:2215"
+	} > port_translation_map.txt
+
 	local name
 	for name in $SUBSYSTEMS_START_ORDER; do
 		( source ./setup_ots.sh $name >/dev/null 2>&1 && export OTS_WIZ_MODE_MAIN_PORT=$OTS_MAIN_PORT && UpdateOTS.sh --tables >/dev/null 2>&1 )
@@ -182,6 +191,7 @@ start_subsystems_tutorial()
 		echo -e "$(date +%d%h%y.%T) reset_ots_tutorial.sh:${LINENO}  \t Starting the instance '${name}'..."
 		( source ./setup_ots.sh $name >/dev/null 2>&1
 		  export OTS_WIZ_MODE_MAIN_PORT=$OTS_MAIN_PORT #Wiz mode of one instance must not take the port of another
+		  [ "$name" == "top" ] && export OTS_PORT_TRANSLATION_MAP_FILE=$PWD/port_translation_map.txt #only the top level hands out addresses
 		  ots --wiz #just to test activate the saved groups
 		  if [ "$1" == "activate only" ]; then ots -k; else ots; fi )
 		sleep 5

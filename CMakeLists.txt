@@ -77,6 +77,9 @@ endif()
 
 find_package(otsdaq 2.06.06 REQUIRED)
 find_package(otsdaq-components 2.06.06 REQUIRED)
+if(NOT DEFINED ENV{OTS_LITE})
+	find_package(otsdaq-artdaqinterface 3.12.00 REQUIRED) # artdaq-ots overlays for the art modules
+endif()
 if(DEFINED ENV{OTS_LITE})
 	message("!!! OTS_LITE build: skipping artdaq and ROOT !!!")
 	if(DEFINED ENV{OTS_MAXLITE})

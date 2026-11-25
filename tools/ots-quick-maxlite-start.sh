@@ -339,7 +339,7 @@ function ots_discover_repos()
     # otsdaq and the three standard repos come first (in that order); any other
     # srcs/otsdaq-*/ directory with a CMakeLists.txt (e.g. an experiment repo such as
     # otsdaq-td-ims-asic) follows, alphabetically, so it builds after otsdaq.
-    local srcs=$1 known="otsdaq otsdaq-components otsdaq-utilities otsdaq-demo" r d
+    local srcs=$1 known="otsdaq otsdaq-components otsdaq-utilities otsdaq-utilities-web otsdaq-demo" r d
     for r in $known; do
         [ -f $srcs/$r/CMakeLists.txt ] && echo $r
     done
@@ -406,7 +406,7 @@ cd $Base
 test -L srcs && rm srcs
 mkdir -p srcs
 cd srcs
-for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-demo;do
+for pkg in otsdaq otsdaq-components otsdaq-utilities otsdaq-utilities-web otsdaq-demo;do
     checkout_package $pkg
 done
 cd $Base
@@ -439,7 +439,9 @@ if [ -d \$SCRIPT_DIR/local/install ]; then
         export OTSDAQ_UTILITIES_DIR=\${OTSDAQ_UTILITIES_DIR:-\$SCRIPT_DIR/local/install}
 
         # in ots-develop mode, set WebPath because OTSDAQ_UTILITIES_DIR is not setup
-        if [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI ]; then
+        if [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities-web/WebGUI ]; then
+                export OTSDAQ_WEB_PATH=\$SCRIPT_DIR/srcs/otsdaq-utilities-web/WebGUI
+        elif [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI ]; then
                 export OTSDAQ_WEB_PATH=\$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI
         else
                 export OTSDAQ_WEB_PATH=\$(readlink -f "\$OTSDAQ_UTILITIES_LIB/../WebGUI")

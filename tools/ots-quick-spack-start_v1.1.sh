@@ -279,7 +279,7 @@ if [[ ${opt_develop:-0} -eq 1 ]];then
     rm srcs
     mkdir srcs
     cd srcs
-    for pkg in otsdaq otsdaq-demo otsdaq-utilities otsdaq-components otsdaq-epics otsdaq-prepmodernization otsdaq-suite;do
+    for pkg in otsdaq otsdaq-artdaqinterface otsdaq-demo otsdaq-utilities otsdaq-utilities-web otsdaq-components otsdaq-epics otsdaq-prepmodernization otsdaq-suite;do
         checkout_package $pkg
     done
     cd $Base
@@ -322,7 +322,9 @@ if [ -d \$SCRIPT_DIR/local/install ]; then
         export OTSDAQ_UTILITIES_DIR=\${OTSDAQ_UTILITIES_DIR:-\$SCRIPT_DIR/local/install}
 
         # in ots-develop mode, set WebPath because OTSDAQ_UTILITIES_DIR is not setup
-        if [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI ]; then
+        if [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities-web/WebGUI ]; then
+                export OTSDAQ_WEB_PATH=\$SCRIPT_DIR/srcs/otsdaq-utilities-web/WebGUI
+        elif [ -d \$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI ]; then
                 export OTSDAQ_WEB_PATH=\$SCRIPT_DIR/srcs/otsdaq-utilities/WebGUI
         else
                 export OTSDAQ_WEB_PATH=\$(readlink -f "\$OTSDAQ_UTILITIES_LIB/../WebGUI")
